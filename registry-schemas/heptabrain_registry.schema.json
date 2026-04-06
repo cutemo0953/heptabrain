@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HeptaBrain Sync Registry",
+  "type": "object",
+  "properties": {
+    "version": { "type": "string" },
+    "lastSync": { "type": ["string", "null"], "format": "date-time" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["knowledge_id", "source_system", "source_file", "canonicality", "content_hash", "synced_at"],
+        "properties": {
+          "knowledge_id": { "type": "string", "description": "Stable identifier, e.g. kb-irehab-scaling" },
+          "source_system": { "type": "string", "enum": ["memory", "heptabase", "wiki_kb", "blog"] },
+          "source_file": { "type": "string" },
+          "canonicality": { "type": "string", "enum": ["knowledge", "state", "reference", "feedback", "user"] },
+          "authority_status": { "type": "string", "enum": ["canonical", "derived", "candidate", "reference"] },
+          "content_hash": { "type": "string" },
+          "supersedes": { "type": ["string", "null"] },
+          "superseded_by": { "type": ["string", "null"] },
+          "aliases": { "type": "array", "items": { "type": "string" } },
+          "heptabase_card_title": { "type": "string" },
+          "synced_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  }
+}

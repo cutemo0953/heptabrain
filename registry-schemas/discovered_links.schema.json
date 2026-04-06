@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Discovered Links Registry",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["link_id", "from_knowledge_id", "to_knowledge_id", "relation_type", "rationale", "discovered_at", "discovered_by"],
+    "properties": {
+      "link_id": { "type": "string", "description": "e.g. lk-20260406-001" },
+      "from_knowledge_id": { "type": "string" },
+      "to_knowledge_id": { "type": "string" },
+      "relation_type": {
+        "type": "string",
+        "enum": ["shares_principle", "tensions_with", "bridge_to", "derives_from", "applies_to", "example_of", "supports", "contradicts"]
+      },
+      "rationale": { "type": "string", "description": "One sentence explaining why this link exists" },
+      "evidence_refs": { "type": "array", "items": { "type": "string" } },
+      "novelty_score": { "type": "number", "minimum": 0, "maximum": 1 },
+      "evidence_score": { "type": "number", "minimum": 0, "maximum": 1 },
+      "review_state": { "type": "string", "enum": ["proposed", "accepted", "rejected"] },
+      "discovered_at": { "type": "string", "format": "date-time" },
+      "discovered_by": { "type": "string", "description": "e.g. zettel-walk wander" }
+    }
+  }
+}
