@@ -2,13 +2,13 @@
 description: "Sync knowledge between Claude Memory and Heptabase. Usage: /heptabrain-sync push or /heptabrain-sync pull [topic]"
 argument-hint: "push | push [filename] | pull [topic] | status | audit | gc | gc confirm"
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit, mcp__heptabase-mcp__save_to_note_card, mcp__heptabase-mcp__semantic_search_objects, mcp__heptabase-mcp__search_whiteboards, mcp__heptabase-mcp__get_object
-
-
+category: utility
+projects: [all]
 ---
 
 # HeptaBrain Sync — Knowledge Distillation between Claude Memory and Heptabase
 
-Spec: `~/.claude/projects/<YOUR_PROJECT>/memory/DEV_SPEC_HEPTABRAIN_SYNC.md` v2.1
+Spec: [`docs/02-heptabrain-sync.md`](https://github.com/cutemo0953/cyberbrain/blob/main/docs/02-heptabrain-sync.md) v2.1 — also available locally if you cloned the repo.
 
 ## Arguments
 
@@ -16,8 +16,8 @@ Spec: `~/.claude/projects/<YOUR_PROJECT>/memory/DEV_SPEC_HEPTABRAIN_SYNC.md` v2.
 
 ## Registries
 
-- **Sync Registry:** `~/.claude/projects/<YOUR_PROJECT>/memory/_heptabrain_registry.json`
-- **Heptabase Refs:** `~/.claude/projects/<YOUR_PROJECT>/memory/_heptabase_refs.json`
+- **Sync Registry:** `~/.claude/memory/_heptabrain_registry.json`
+- **Heptabase Refs:** `~/.claude/memory/_heptabase_refs.json`
 
 Initialize registry files if they don't exist (empty `{"version":"2.1","lastSync":null,"entries":[]}` and `{"session_id":null,"refs":[]}`).
 
@@ -25,7 +25,7 @@ Initialize registry files if they don't exist (empty `{"version":"2.1","lastSync
 
 ### `push` — Memory → Heptabase (Knowledge Distillation)
 
-1. **Read all memory files** in `~/.claude/projects/<YOUR_PROJECT>/memory/`
+1. **Read all memory files** in `~/.claude/memory/`
    - Only `.md` files with YAML frontmatter
    - Skip files starting with `_` (registries), `MEMORY.md` (index), `SKILLS_SPEC.md`, `DEV_SPEC_*`
 

@@ -11,7 +11,7 @@
         "type": "object",
         "required": ["knowledge_id", "source_system", "source_file", "canonicality", "content_hash", "synced_at"],
         "properties": {
-          "knowledge_id": { "type": "string", "description": "Stable identifier, e.g. kb-irehab-scaling" },
+          "knowledge_id": { "type": "string", "description": "Stable identifier, e.g. kb-exampleproject-scaling" },
           "source_system": { "type": "string", "enum": ["memory", "heptabase", "wiki_kb", "blog"] },
           "source_file": { "type": "string" },
           "canonicality": { "type": "string", "enum": ["knowledge", "state", "reference", "feedback", "user"] },

@@ -29,9 +29,9 @@ Searched Heptabase with the elevated principle (not "knowledge management"). Fou
 **Elevation:** Mapped to Anchor 3 + Anchor 1 (System Resilience)
 **Abstracted principle:** "Converting unmeasurable system state into observable proxy signals — making hidden processes explicit."
 
-### Step 3: Distributed Resilient Operations / xGrid (Disaster Response)
+### Step 3: Distributed Resilient Operations / ProjectB (Disaster Response)
 
-Searched with the refined principle. Found a card about xGrid's disaster field operations system: Offline-First + Event Sourcing + Write-Ahead Log. In disaster scenarios, every operation (opening a blood bag, moving supplies, registering a patient) is recorded as an immutable event stream. Even without network, the event sequence is preserved, replayable, auditable.
+Searched with the refined principle. Found a card about ProjectB's disaster field operations system: Offline-First + Event Sourcing + Write-Ahead Log. In disaster scenarios, every operation (opening a blood bag, moving supplies, registering a patient) is recorded as an immutable event stream. Even without network, the event sequence is preserved, replayable, auditable.
 
 **Why this card:** Event Sourcing is "making chaos observable" — the same principle as LC resonance (making invisible healing visible) and Zettelkasten (making hidden thoughts visible). Different domain again (distributed systems), same mechanism.
 
@@ -54,11 +54,11 @@ Deeper: none of these systems improve outcomes through **control**. They improve
 
 ## Tension
 
-Between the Zettelkasten and xGrid, there's an interesting tension: the knowledge system values **flexibility** (free writing, no format constraints, 20-minute stream of consciousness), while the disaster system values **rigidity** (every event must have a schema, every record must be WAL'd).
+Between the Zettelkasten and ProjectB, there's an interesting tension: the knowledge system values **flexibility** (free writing, no format constraints, 20-minute stream of consciousness), while the disaster system values **rigidity** (every event must have a schema, every record must be WAL'd).
 
 Personal cognition needs freedom to capture emergent insights. Disaster operations need discipline to ensure auditability.
 
-**Productive question:** Can a system dynamically switch between freedom and discipline? Perhaps the answer is: freedom at the input layer (low structure, high volume), discipline at the storage layer (high structure, auditable). iRehab's PROM collection may already be this pattern: patients use a simple slider for input (low structure), the backend stores structured time series (high structure).
+**Productive question:** Can a system dynamically switch between freedom and discipline? Perhaps the answer is: freedom at the input layer (low structure, high volume), discipline at the storage layer (high structure, auditable). a clinical PROM collection system may already be this pattern: patients use a simple slider for input (low structure), the backend stores structured time series (high structure).
 
 ## Bottom-Line Logic
 
@@ -69,14 +69,14 @@ Personal cognition needs freedom to capture emergent insights. Disaster operatio
 | From | To | Type | Rationale | Evidence |
 |------|----|------|-----------|----------|
 | 電馭大腦 | LC resonance | shares_principle | Both convert invisible state into observable signals | Zettelkasten §observation; LC §frequency proxy |
-| LC resonance | xGrid | shares_principle | Both use proxy signals to make hidden processes explicit | LC §strain gauge; xGrid §Event Sourcing WAL |
-| 電馭大腦 | xGrid | shares_principle | Both create order from uncertainty through structured recording | Zettelkasten §project dashboard; xGrid §audit trail |
-| 電馭大腦 | xGrid | tensions_with | Personal context seeks flexibility; disaster protocol seeks rigidity | Free writing §20min; Event Sourcing §strict schema |
+| LC resonance | ProjectB | shares_principle | Both use proxy signals to make hidden processes explicit | LC §strain gauge; ProjectB §Event Sourcing WAL |
+| 電馭大腦 | ProjectB | shares_principle | Both create order from uncertainty through structured recording | Zettelkasten §project dashboard; ProjectB §audit trail |
+| 電馭大腦 | ProjectB | tensions_with | Personal context seeks flexibility; disaster protocol seeks rigidity | Free writing §20min; Event Sourcing §strict schema |
 
 ## What Happened Next
 
 This discovery led directly to a clinical insight: daily post-surgical pain tracking has analgesic effect. The surgeon (the author) connected the "observation is intervention" principle to their clinical practice — patients who track VAS daily rarely report sustained or increasing pain at follow-up. Three mechanisms explain this: perceived control, anti-catastrophizing, and expectation reframing.
 
-This became a blog post: [Pain Tracking Is Pain Relief](https://denovortho.com/blog/pain-tracking-is-therapy)
+This became a blog post: [Pain Tracking Is Pain Relief](<link to your case-study blog post, if any>)
 
 **The zettel-walk found a principle. The principle generated a clinical insight. The insight became a publication.** That's the system working as designed.

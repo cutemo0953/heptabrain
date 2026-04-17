@@ -2,7 +2,8 @@
 
 **Version:** v2.1 FINAL
 **Date:** 2026-04-06
-**Author:** Architect (Claude Code)
+**Prepared with:** Claude Code (Opus, multi-round Gemini + ChatGPT review)
+**Maintained by:** the Cyberbrain contributors
 **Parent Spec:** `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` (#2)
 **Status:** Ready for implementation
 **Changelog:**
@@ -52,7 +53,7 @@ v2.0 已解決 flat vector search 的同域偏見問題。v2.1 補齊三個治�
 ### Mode 1: Wander（升維漫遊）
 
 ```
-/zettel-walk wander "iRehab E-P-E-R 閉環"
+/zettel-walk wander "ExampleProject recovery loop"
 ```
 
 **Flow:**
@@ -103,7 +104,7 @@ Step 6: 輸出 + user 確認 → discovered_links.json
 ### Mode 3: Bridge（辯證橋接）— v2.1 升級
 
 ```
-/zettel-walk bridge "Agilon Health" "Safety-II"
+/zettel-walk bridge "PartnerA Health" "Safety-II"
 ```
 
 **Flow:**
@@ -127,14 +128,14 @@ Step 5: 輸出：
 **範例輸出：**
 
 ```
-Bridge: xGrid ↔ Agilon Health
+Bridge: ProjectB ↔ PartnerA Health
 
 Shared Principle:
   Both are orchestration platforms (不擁有終端，提供平台)
 
 Tension:
-  xGrid optimizes for redundancy under scarcity (disaster)
-  Agilon optimizes for lean efficiency under abundance (peace)
+  ProjectB optimizes for redundancy under scarcity (disaster)
+  PartnerA optimizes for lean efficiency under abundance (peace)
   → Conflict boundary: "at what resource level does lean become fragile?"
 
 Dialectic Insight:
@@ -176,7 +177,7 @@ Dialectic Insight:
 | From | To | Type | Rationale | Evidence | Novelty | Evidence Score |
 |------|----|------|-----------|----------|---------|---------------|
 | E-P-E-R | Safety-II | shares_principle | Both loop-based | E-P-E-R §cycle; S-II §WAD | 0.8 | 0.7 |
-| xGrid | Agilon | tensions_with | Redundancy vs lean | xGrid §disaster; AGL §shrink | 0.9 | 0.6 |
+| ProjectB | PartnerA | tensions_with | Redundancy vs lean | ProjectB §disaster; PartnerA §shrink | 0.9 | 0.6 |
 
 ### Bottom-Line Logic
 {一句話}

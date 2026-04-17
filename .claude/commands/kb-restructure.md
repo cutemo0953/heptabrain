@@ -14,9 +14,9 @@ Extracted from `/research-digest` Step 5 as an independent atomic skill.
 ## Arguments
 
 `$ARGUMENTS` = one of:
-- `blog-research` → `/Users/QmoMBA/Downloads/denovortho-site/docs/KNOWLEDGE_BASE_BLOG_RESEARCH.md`
-- `wearable-sensor` → `/Users/QmoMBA/Downloads/wearable-sensor-kb/KNOWLEDGE_BASE.md`
-- `safety-ii` → `/Users/QmoMBA/Downloads/safety-ii-kb/KNOWLEDGE_BASE.md`
+- `blog-research` → `~/your-blog-repo/docs/KNOWLEDGE_BASE_BLOG_RESEARCH.md`
+- `wearable-sensor` → `~/Downloads/wearable-sensor-kb/KNOWLEDGE_BASE.md`
+- `safety-ii` → `~/Downloads/safety-ii-kb/KNOWLEDGE_BASE.md`
 - `all` → all of the above
 
 ## Instructions
