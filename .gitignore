@@ -1,0 +1,6 @@
+.DS_Store
+*.swp
+.vscode/
+.idea/
+# Per-user memory content is never committed — only templates live in examples/
+/memory/

@@ -37,7 +37,7 @@ When abstracting concepts, **prioritize mapping to these core dimensions** (but 
 ## Mode 1: Wander (升維漫遊)
 
 ```
-/zettel-walk wander "iRehab E-P-E-R 閉環"
+/zettel-walk wander "ExampleProject recovery loop"
 ```
 
 **Flow:**
@@ -104,7 +104,7 @@ When abstracting concepts, **prioritize mapping to these core dimensions** (but 
 ## Mode 3: Bridge (辯證橋接)
 
 ```
-/zettel-walk bridge "Agilon Health" "Safety-II"
+/zettel-walk bridge "PartnerA Health" "Safety-II"
 ```
 
 **Flow:**

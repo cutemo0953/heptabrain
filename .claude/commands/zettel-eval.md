@@ -18,7 +18,7 @@ Zettel-walk discovers links. Zettel-eval validates them. They are deliberately s
 
 ## Registry
 
-`~/.claude/projects/-Users-QmoMBA/memory/_discovered_links.json`
+`~/.claude/projects/YOUR_USER/memory/_discovered_links.json`
 
 ## Default Mode: Evaluate Proposed Links
 

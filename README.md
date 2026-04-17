@@ -1,220 +1,133 @@
 # HeptaBrain
 
-**Heptabase + Claude Code = AI-powered Zettelkasten**
+**Heptabase + Claude Code = AI-powered Zettelkasten, built on a small family of specs that keep state and knowledge from leaking into each other.**
 
-A set of Claude Code skills that turn Heptabase into an AI-driven knowledge discovery system. Instead of manually browsing your cards, let AI walk through your knowledge base, find cross-domain connections you'd never see, and write the discoveries into your Heptabase Journal.
+Four Claude Code slash commands, two docs, one install script. Used daily by the author since 2026-04-06.
 
-## What This Does
+> *"The value of knowledge isn't in the nodes. It's in the links between them."*
 
-Two skills:
+## The four slash commands
 
-### `/zettel-walk` — Cross-Domain Knowledge Discovery
+| Command | Purpose | Spec |
+|---|---|---|
+| `/heptabrain-sync` | Distill memory files → Heptabase cards (never copy bulk); URI-reference pull; audit; gc | [`docs/02-heptabrain-sync.md`](docs/02-heptabrain-sync.md) |
+| `/zettel-walk` | Cross-domain knowledge discovery via **dimensional elevation** — the AI abstracts your concept to an underlying principle first, then searches with that principle | [`docs/03-zettel-walk.md`](docs/03-zettel-walk.md) |
+| `/zettel-eval` | Evaluate the quality of discovered links independently (critic agent for `/zettel-walk` output) | (shares the zettel-walk spec) |
+| `/kb-restructure` | Restructure wiki-format KBs — merge duplicates, relocate misplaced entries, update stale ones | — |
 
-Ask AI to wander through your Heptabase cards and find hidden connections between seemingly unrelated concepts.
-
-```
-/zettel-walk wander "bundled payment model"
-```
-
-The key innovation is **dimensional elevation**: instead of searching for similar cards (which just finds neighbors in the same domain), the AI first abstracts your concept to an underlying principle, then searches with that principle. This produces genuine cross-domain collisions.
-
-**Example from real usage:**
+## The architecture underneath
 
 ```
-Starting card: "電馭大腦" (Personal Knowledge Management)
+Cyberbrain Architecture (docs/01-cyberbrain-architecture.md)  ← infrastructure
+  │  State vs Knowledge separation, per-type canonical authority,
+  │  evidence-bearing links, elevation anchors, journal relay
+  │
+  ├── HeptaBrain Sync       (docs/02-heptabrain-sync.md) ─ shipped
+  │     /heptabrain-sync
+  │
+  ├── Zettel Walk           (docs/03-zettel-walk.md)     ─ shipped
+  │     /zettel-walk, /zettel-eval
+  │
+  ├── KB Restructure        (ad-hoc)                     ─ shipped
+  │     /kb-restructure
+  │
+  ├── Strategic Review System        [not yet shipped]   ─ dog-fooding
+  │     Multi-lens feature review (ecosystem / jtbd / brand / trust / ...)
+  │
+  └── Multidimensional Analysis (MDA)  [not yet shipped] ─ dog-fooding
+        extends Strategic Review
+        4D+: Proximity / Synergy / Temporal / Perspective
+```
+
+The two "not yet shipped" layers are being validated across 10+ real reviews in 3+ projects before they land here. File an issue if you want to pilot them early.
+
+## The key innovation: dimensional elevation
+
+Naive vector search finds neighbours in the same domain. Most useful cross-domain insights don't live there — they live one abstraction level up, where "bundled payment model" and "LC resonance sensor" both turn out to be about *making invisible system state observable*.
+
+`/zettel-walk` forces that elevation:
+
+```
+Starting card: "Personal Knowledge Management"
   → Elevated: "Making information visible creates self-correcting feedback loops"
-  → Walked to: "LC resonance sensor" (Implantable sensor physics)
+  → Walked to: "LC resonance sensor" (implantable sensor physics)
   → Elevated: "Converting unmeasurable system state into observable proxy signals"
-  → Walked to: "Distributed Resilient Operations" (Disaster response systems)
+  → Walked to: "Distributed Resilient Operations" (disaster response systems)
 
 Discovery: All three share one principle —
-"Observation itself is intervention. Faithful recording is the most powerful force for improvement."
+"Observation itself is intervention. Faithful recording is the most
+powerful force for improvement."
 ```
 
-This discovery led to a clinical insight: daily post-surgical pain tracking has analgesic effect — not through placebo, but through perceived control, anti-catastrophizing, and expectation reframing.
+That discovery led to a real clinical insight: daily post-surgical pain tracking has an analgesic effect — not placebo, but perceived control + anti-catastrophizing + expectation reframing.
 
-**Four modes:**
+## The discipline underneath the commands
 
-| Mode | Command | What it does |
-|------|---------|-------------|
-| Wander | `/zettel-walk wander "concept"` | Walk 3-5 steps via dimensional elevation |
-| Shuffle | `/zettel-walk shuffle 3 "anchor"` | Random 3 cards + your anchor, find common principles |
-| Bridge | `/zettel-walk bridge "A" "B"` | Find connection + dialectic tension between two cards |
-| Journal | `/zettel-walk journal` | Review last 7 days, find patterns worth promoting to cards |
+Full detail: [`docs/01-cyberbrain-architecture.md`](docs/01-cyberbrain-architecture.md). TL;DR:
 
-Results are shown in CLI first, then optionally written to your Heptabase Journal. You decide what to promote to a card — AI discovers, you decide.
+- **P1 — State vs Knowledge decoupling.** Day/week-level perishable → Claude Memory. Crystallised → Heptabase cards. Canonicality declared in frontmatter, not guessed.
+- **P2 — Per-type canonical authority.** Each entity class has one authoritative system. No dual source of truth.
+- **P3 — Evidence-bearing links.** Every AI-suggested link carries `relation_type` + `rationale` + `evidence` + `review_state`. Bare `[[link]]` is rejected.
+- **P4 — Elevation anchors.** When abstracting upward, map to a user-chosen set of attractors so cross-domain collisions become repeatable, not random.
+- **P5 — Journal as relay.** AI discoveries land in Journal first, not as cards. User promotes good parts via "Turn into card" — reduces whiteboard-placement friction to one click.
 
-### `/heptabrain-sync` — Knowledge Distillation
+## Install
 
-Sync knowledge between Claude Code's memory system and Heptabase.
-
-```
-/heptabrain-sync push          # Distill memory → Heptabase cards
-/heptabrain-sync pull "topic"  # Find relevant Heptabase cards for current session
-/heptabrain-sync gc            # List superseded cards for cleanup
-/heptabrain-sync audit         # Check for duplicates and orphans
-```
-
-Key design decisions:
-- **Distill, don't copy.** AI extracts core insights and underlying principles, not raw file content.
-- **State vs Knowledge.** Only crystallized knowledge gets synced — not in-progress work, session logs, or bug lists.
-- **Journal as intermediary.** Zettel-walk results go to Journal first. You promote the good ones to cards in Heptabase UI (right-click → "Turn into card"). This avoids cluttering your whiteboards with AI-generated cards.
-
-## Design Principles
-
-### 1. Connections > Nodes
-
-Inspired by Luhmann's Zettelkasten: the value of knowledge is not in individual notes, but in the connections between them. AI can traverse thousands of cards in seconds and find patterns humans miss.
-
-### 2. Dimensional Elevation
-
-Don't search with raw concepts — you'll only find same-domain neighbors. Abstract first, search second.
-
-```
-Raw: "rotator cuff repair technique"
-  → only finds: "ACL reconstruction", "shoulder arthroscopy"
-
-Elevated: "restoring function under mechanical constraint"
-  → finds: "disaster triage resource allocation", "battery-free sensor design"
-  → genuine cross-domain insight
-```
-
-### 3. Observation Is Intervention
-
-The deepest principle discovered through using this system: making information visible creates self-correcting feedback loops. This applies to:
-- Knowledge management (externalize thoughts → automatic organization)
-- Clinical practice (track pain daily → pain decreases)
-- System design (event sourcing → operational clarity)
-
-### 4. Journal-First Output
-
-Heptabase's MCP API can create cards but cannot place them on whiteboards. Instead of dumping cards into your main space (requiring manual organization), discoveries go to your Journal. You browse the Journal in Heptabase and promote the good parts with one click.
-
-## Setup
-
-### Prerequisites
-
-- [Claude Code](https://claude.ai/code) (CLI or desktop app)
-- [Heptabase](https://heptabase.com/) with MCP integration enabled
-- Heptabase MCP server configured in Claude Code
-
-### Installation
-
-1. Copy the skill files to your Claude Code commands directory:
+Prerequisites:
+- [Claude Code](https://claude.com/claude-code) CLI
+- A Heptabase account with the [Heptabase MCP](https://heptabase.com/mcp) connected (or adapt per "Porting" below)
 
 ```bash
-cp skills/zettel-walk.md ~/.claude/commands/
-cp skills/heptabrain-sync.md ~/.claude/commands/
+git clone https://github.com/cutemo0953/heptabrain.git
+cd heptabrain
+./setup/install.sh
 ```
 
-2. Create the registry files:
+The install script copies the four slash commands into `~/.claude/commands/`, seeds memory templates into `~/.claude/memory/` (only if that dir is empty — won't clobber existing memory), and creates empty registry JSON skeletons.
 
-```bash
-mkdir -p ~/.claude/projects/default/memory
+After install, open any Claude Code session and run `/heptabrain-sync status` to verify.
 
-echo '{"version":"2.1","lastSync":null,"entries":[]}' \
-  > ~/.claude/projects/default/memory/_heptabrain_registry.json
+## Porting to other card systems
 
-echo '[]' \
-  > ~/.claude/projects/default/memory/_discovered_links.json
-```
+The sync discipline doesn't depend on Heptabase specifically. Viable targets, in roughly descending confidence:
 
-3. Configure your Elevation Anchors by editing `zettel-walk.md` — replace the default anchors with your own focus areas:
+| Target | Adapter path | Status |
+|---|---|---|
+| Plain filesystem (Markdown dir) | `fs.writeFile` + `ripgrep` for search | **Verified** — simplest port |
+| Obsidian | [`obsidian-local-rest-api`](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin | Viable; community plugin, not first-party |
+| Logseq | Plugin SDK or direct graph-dir write; no official REST/GraphQL surfaced | Unverified |
+| Roam Research | Only unofficial integrations exist | Unverified |
+| Any Zettelkasten with a CLI/MCP | Whatever primitives your tool exposes | Works if primitives map to `save / search / list-containers` |
 
-```markdown
-## Elevation Anchors
-1. Your Domain A (e.g., "System Resilience")
-2. Your Domain B (e.g., "Economic Incentives")
-3. Your Domain C (e.g., "Clinical Feedback Loops")
-4. Your Domain D (e.g., "Scaling & Governance")
-5. Your Domain E (e.g., "Human-AI Collaboration")
-```
+Whichever adapter you choose, two invariants must hold:
 
-4. (Optional) Update the memory path in both skill files if your Claude Code project path differs from the default.
+1. **Preserve the Step 1.5 "Whiteboard Discovery → Placement Hint" loop.** Letting the user keep placement control is the main UX win.
+2. **Keep the registry schema.** The `knowledge_id` / `content_hash` / `superseded_by` triangle is what makes supersession auditable.
 
-## Architecture
+If you try a port, file an issue with what worked and what broke — even partial reports help refine the "status" column above.
 
-```
-You ──→ Claude Code CLI ──→ Heptabase MCP
-              │                    │
-         [zettel-walk]        [read cards]
-         [heptabrain-sync]    [search cards]
-              │               [write journal]
-              ↓               [create cards]
-       _discovered_links.json
-       _heptabrain_registry.json
-```
+## Chinese introduction
 
-**Data flow for zettel-walk:**
-```
-1. You type: /zettel-walk wander "concept"
-2. AI searches Heptabase → finds starting card
-3. AI extracts concepts → elevates to principle → searches again
-4. Repeats 3-5 steps (with cycle guard)
-5. Synthesizes path → shows result in CLI
-6. You confirm → AI writes to Heptabase Journal
-7. Links saved to _discovered_links.json
-8. You browse Journal in Heptabase → promote good discoveries to cards
-```
+For a blog-style Chinese walk-through of the philosophy, see [`INTRO_ZH.md`](INTRO_ZH.md).
 
-**Data flow for heptabrain-sync push:**
-```
-1. You type: /heptabrain-sync push
-2. AI reads memory files → filters by canonicality (knowledge only, not state)
-3. AI distills each file → core insights + underlying principle
-4. AI searches Heptabase whiteboards → suggests placement
-5. Creates cards with placement hints
-6. Updates registry with knowledge_id + content_hash
-```
+## Status
 
-## Discovered Links Registry
-
-Every zettel-walk saves discovered connections as structured data:
-
-```json
-{
-  "link_id": "lk-20260406-001",
-  "from_knowledge_id": "電馭大腦",
-  "to_knowledge_id": "LC resonance",
-  "relation_type": "shares_principle",
-  "rationale": "Both convert invisible state into observable signals",
-  "evidence_refs": ["電馭大腦 §observation", "LC resonance §frequency proxy"],
-  "novelty_score": 0.9,
-  "evidence_score": 0.7,
-  "review_state": "proposed",
-  "discovered_at": "2026-04-06T16:45:00+08:00",
-  "discovered_by": "zettel-walk wander"
-}
-```
-
-This prevents rediscovering the same connections and lets you track which links you accepted or rejected over time.
-
-## Design Specs
-
-The full architecture went through multi-AI review (Claude → Gemini → ChatGPT → revise → re-review). The specs and review logs are in `specs/`:
-
-- `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` — Overall architecture (v2.1)
-- `DEV_SPEC_HEPTABRAIN_SYNC.md` — Sync design (v2.1)
-- `DEV_SPEC_ZETTEL_WALK.md` — Walk design (v2.1)
-
-## Limitations
-
-| Limitation | Workaround |
-|-----------|-----------|
-| Heptabase MCP can't place cards on whiteboards | Journal-first pattern: write to Journal, you promote in UI |
-| Heptabase MCP can't edit or delete cards | `supersedes` tracking + `gc` command for cleanup lists |
-| Heptabase MCP can't add tags | `Tags:` text in card content (searchable but not filterable) |
-| Vector search finds same-domain neighbors | Dimensional elevation: abstract first, search second |
-| Skills are prompts, not executable code | They work because Claude Code interprets them — same as gstack, CLAUDE.md workflows |
+| Piece | Maturity |
+|---|---|
+| Cyberbrain Architecture spec | v2.1 FINAL, in daily use by author since 2026-04-06 |
+| HeptaBrain Sync spec + `/heptabrain-sync` | v2.1 FINAL, ~1 card/day distilled in steady state |
+| Zettel Walk spec + `/zettel-walk`, `/zettel-eval` | Shipped; the "Pain Tracking Is Pain Relief" discovery was produced by it |
+| `/kb-restructure` | Shipped as an atomic skill |
+| Strategic Review System (sibling) | Dog-fooding internally; will land after 10+ cross-project reviews |
+| Multidimensional Analysis Extension (sibling) | Dog-fooding internally; `Rev 1.5` with experimental stubs |
 
 ## License
 
-MIT (skill files and schemas) + CC BY 4.0 (documentation and examples)
+See [`LICENSE`](LICENSE) for the short explainer. In brief:
 
-## Credits
+- **Docs** (`docs/`, `README.md`, `CONTRIBUTING.md`, `examples/**/*.md`, `INTRO_ZH.md`): [CC BY 4.0](./LICENSE-docs)
+- **Code** (`setup/`, future helpers): [MIT](./LICENSE-code)
 
-- [Heptabase](https://heptabase.com/) — the visual knowledge base
-- [Claude Code](https://claude.ai/code) — the AI development environment
-- Niklas Luhmann — the Zettelkasten method
-- Timothy Gallwey — "observation itself brings improvement" (The Inner Game of Tennis)
-- The concept of "dimensional elevation" was developed during a multi-AI architecture review session with Claude, Gemini, and ChatGPT
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md). Port reports and spec critiques are especially welcome — there are GitHub issue templates for both.

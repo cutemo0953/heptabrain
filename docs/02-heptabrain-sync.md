@@ -2,7 +2,8 @@
 
 **Version:** v2.1 FINAL
 **Date:** 2026-04-06
-**Author:** Architect (Claude Code)
+**Prepared with:** Claude Code (Opus, multi-round Gemini + ChatGPT review)
+**Maintained by:** the Cyberbrain contributors
 **Parent Spec:** `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` (#1)
 **Status:** Ready for implementation
 **Changelog:**
@@ -30,7 +31,7 @@ Claude Code memory 和 Heptabase 是兩個孤島。v1.0 的「雙向內容同步
 
 ```yaml
 ---
-name: iRehab Scaling Strategy
+name: ExampleProject Scaling Strategy
 type: project
 canonicality: knowledge        # 顯式標記
 authority_status: canonical    # 顯式標記
@@ -118,7 +119,7 @@ Card format:
 ```json
 {
   "session_id": "2026-04-06T16:30",
-  "topic": "iRehab strategy",
+  "topic": "ExampleProject strategy",
   "pulled_at": "2026-04-06T16:30:00+08:00",
   "refs": [
     {
@@ -147,8 +148,8 @@ Card format:
 
 | # | 舊卡片 | 被取代者 | Superseded at |
 |---|--------|----------|---------------|
-| 1 | "iRehab Scaling v1" | kb-irehab-scaling-v2 | 2026-04-10 |
-| 2 | "Agilon DD v1" | kb-agilon-dd-v2 | 2026-04-12 |
+| 1 | "ExampleProject Scaling v1" | kb-exampleproject-scaling-v2 | 2026-04-10 |
+| 2 | "PartnerDueDiligence v1" | kb-partner-dd-v2 | 2026-04-12 |
 
 請在 Heptabase UI 中刪除以上卡片。
 刪除後執行 `/heptabrain-sync gc confirm` 清除 registry 記錄。
@@ -182,16 +183,16 @@ Card format:
   "lastSync": "2026-04-06T14:30:00+08:00",
   "entries": [
     {
-      "knowledge_id": "kb-irehab-scaling",
+      "knowledge_id": "kb-exampleproject-scaling",
       "source_system": "memory",
-      "source_file": "project_irehab_scaling_strategy.md",
+      "source_file": "project_exampleproject_scaling.md",
       "canonicality": "knowledge",
       "authority_status": "canonical",
       "content_hash": "sha256:abc123...",
       "supersedes": null,
       "superseded_by": null,
-      "aliases": ["iRehab scaling", "愛復健擴展策略"],
-      "heptabase_card_title": "iRehab Scaling Strategy — Core Principles",
+      "aliases": ["ExampleProject scaling", "ExampleProject 擴展策略"],
+      "heptabase_card_title": "ExampleProject Scaling Strategy — Core Principles",
       "synced_at": "2026-04-06T14:30:00+08:00"
     }
   ]

@@ -2,7 +2,8 @@
 
 **Version:** v2.1 FINAL
 **Date:** 2026-04-06
-**Author:** Architect (Claude Code)
+**Prepared with:** Claude Code (Opus, multi-round Gemini + ChatGPT review)
+**Maintained by:** the Cyberbrain contributors
 **Status:** Ready for implementation
 **Review:** Gemini APPROVE, ChatGPT APPROVE (both with minor revisions, incorporated)
 **Changelog:**
@@ -107,14 +108,14 @@ User 在 Heptabase 瀏覽 Journal
 
 ```json
 {
-  "knowledge_id": "kb-irehab-scaling",
+  "knowledge_id": "kb-exampleproject-scaling",
   "source_system": "memory",
-  "source_file": "project_irehab_scaling_strategy.md",
+  "source_file": "project_exampleproject_scaling.md",
   "canonicality": "knowledge",
   "authority_status": "canonical",
   "content_hash": "sha256:abc123...",
   "supersedes": null,
-  "aliases": ["iRehab scaling", "愛復健擴展策略"],
+  "aliases": ["ExampleProject scaling", "ExampleProject 擴展策略"],
   "heptabase_card_title": "...",
   "synced_at": "2026-04-06T14:30:00+08:00"
 }
@@ -145,7 +146,7 @@ Session-scoped card references，即時讀取用。
 ```json
 {
   "session_id": "2026-04-06T14:30",
-  "topic": "iRehab strategy",
+  "topic": "ExampleProject strategy",
   "pulled_at": "2026-04-06T14:30:00+08:00",
   "refs": [
     {
