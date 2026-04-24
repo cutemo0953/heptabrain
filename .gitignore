@@ -4,3 +4,11 @@
 .idea/
 # Per-user memory content is never committed — only templates live in examples/
 /memory/
+
+# Python build / test artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/

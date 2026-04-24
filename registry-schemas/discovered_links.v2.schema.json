@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Discovered Links Registry v2 (Cyberbrain v3.0.1)",
+  "description": "Backward-compatible with v2.1. v2 provenance fields are optional; migration layer fills them from legacy entries.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "link_id",
+      "from_knowledge_id",
+      "to_knowledge_id",
+      "relation_type",
+      "rationale",
+      "discovered_at",
+      "discovered_by"
+    ],
+    "properties": {
+      "link_id": { "type": "string", "pattern": "^lk-.+" },
+      "from_knowledge_id": { "type": "string" },
+      "to_knowledge_id": { "type": "string" },
+      "relation_type": {
+        "type": "string",
+        "enum": [
+          "supports",
+          "contradicts",
+          "derives_from",
+          "applies_to",
+          "example_of",
+          "bridge_to",
+          "tensions_with",
+          "synergizes-with",
+          "attracts",
+          "precedes",
+          "shares_principle",
+          "related_to"
+        ]
+      },
+      "rationale": { "type": "string", "minLength": 1 },
+      "evidence_refs": { "type": "array", "items": { "type": "string" } },
+      "novelty_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+      "evidence_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+
+      "link_class": {
+        "type": ["string", "null"],
+        "enum": ["canonical", "proposed", "exploratory", null]
+      },
+      "acceptance_state": {
+        "type": ["string", "null"],
+        "enum": ["proposed", "accepted", "rejected", "superseded", "stale", null]
+      },
+      "scope_type": {
+        "type": ["string", "null"],
+        "enum": ["whiteboard", "cross_whiteboard", null]
+      },
+      "scope_whiteboard_id": { "type": ["string", "null"] },
+      "source_mode": { "type": ["string", "null"] },
+      "evidence_kind": {
+        "type": ["array", "null"],
+        "items": { "type": "string" }
+      },
+      "last_verified_at": {
+        "type": ["string", "null"],
+        "format": "date-time"
+      },
+      "verified_by": {
+        "type": ["string", "null"],
+        "enum": ["ai", "human", "hybrid", null]
+      },
+
+      "implicit_connection_detected": { "type": ["boolean", "null"] },
+      "auto_accept_reason": { "type": ["string", "null"] },
+      "auto_accept_confidence": {
+        "type": ["string", "null"],
+        "enum": ["high", "med", "low", null]
+      },
+      "promoted_from": {
+        "type": ["string", "null"],
+        "enum": ["canonical", "proposed", "exploratory", null]
+      },
+
+      "needs_taxonomy_review": { "type": ["boolean", "null"] },
+
+      "review_state": {
+        "type": ["string", "null"],
+        "enum": ["proposed", "accepted", "rejected", null],
+        "description": "Deprecated in v3; mirror of acceptance_state for backward compat"
+      },
+      "confidence": {
+        "type": ["string", "null"],
+        "enum": ["high", "med", "low", null]
+      },
+      "discovered_at": { "type": "string", "format": "date-time" },
+      "discovered_by": { "type": "string" }
+    }
+  }
+}
