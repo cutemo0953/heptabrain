@@ -1,15 +1,23 @@
 # Dev Spec: Zettel Walk (升維漫遊 — 跨域連結發現)
 
-**Version:** v2.1 FINAL
-**Date:** 2026-04-06
-**Prepared with:** Claude Code (Opus, multi-round Gemini + ChatGPT review)
-**Maintained by:** the Cyberbrain contributors
-**Parent Spec:** `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` (#2)
-**Status:** Ready for implementation
+**Version:** v2.2 DRAFT
+**Date:** 2026-04-24
+**Author:** Architect (Claude Code)
+**Parent Spec:** `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` **v3.0** (2026-04-24)
+**Cyberbrain Role:** Loop 3 — **Diverge**（cross-whiteboard divergent discovery）
+**Status:** DRAFT — 待簽收 (v2.1 shipped behavior 保留，v2.2 新增 v3 alignment + zero-friction journaling)
+
 **Changelog:**
 - v1.0: Flat vector search, prose-only output
 - v2.0: 升維搜尋、link evidence、cycle guard
-- v2.1: Elevation anchors、bridge dialectic (tensions_with)、internal dual scoring、discovered_links.json 持久化
+- v2.1 FINAL: Elevation anchors、bridge dialectic (tensions_with)、internal dual scoring、discovered_links.json 持久化
+- **v2.2 (2026-04-24):** Aligned to Cyberbrain v3.0:
+  - Header 新增 Four-Loop Role 標示（Diverge）
+  - §4 修訂：wander/shuffle 輸出 `link_class: exploratory`；bridge accepted 為 `proposed`
+  - §5 Registry entries 寫入時對齊 v3 Schema v2 provenance fields
+  - §4.Output **Zero-friction Journal append**（採納 Gemini tactic，對齊 v3 P5：Journal 是 ephemeral surface，寫入不需 human gate）
+  - `--explicit-confirm` 旗標保留給 user 想 opt-in 舊行為
+  - 新 link 若 novelty_score > 0.8 → `link_class: exploratory`；若 ≤ 0.8 → `proposed`（更穩定的連結）
 
 ---
 
@@ -53,7 +61,7 @@ v2.0 已解決 flat vector search 的同域偏見問題。v2.1 補齊三個治�
 ### Mode 1: Wander（升維漫遊）
 
 ```
-/zettel-walk wander "ExampleProject recovery loop"
+/zettel-walk wander "observation-feedback closed-loop"
 ```
 
 **Flow:**
@@ -85,7 +93,7 @@ Step 6: 回顧路徑 → 輸出 structured result
 ### Mode 2: Shuffle（隨機抽牌）
 
 ```
-/zettel-walk shuffle 3 "CMS TEAM bundled payment"
+/zettel-walk shuffle 3 "value-based bundled payment"
 ```
 
 **Flow:**
@@ -104,7 +112,7 @@ Step 6: 輸出 + user 確認 → discovered_links.json
 ### Mode 3: Bridge（辯證橋接）— v2.1 升級
 
 ```
-/zettel-walk bridge "PartnerA Health" "Safety-II"
+/zettel-walk bridge "Orchestration Platform" "Safety-II"
 ```
 
 **Flow:**
@@ -128,19 +136,19 @@ Step 5: 輸出：
 **範例輸出：**
 
 ```
-Bridge: ProjectB ↔ PartnerA Health
+Bridge: Platform-A ↔ Platform-B
 
 Shared Principle:
   Both are orchestration platforms (不擁有終端，提供平台)
 
 Tension:
-  ProjectB optimizes for redundancy under scarcity (disaster)
-  PartnerA optimizes for lean efficiency under abundance (peace)
+  Platform-A optimizes for redundancy under scarcity (disaster)
+  Platform-B optimizes for lean efficiency under abundance (peace)
   → Conflict boundary: "at what resource level does lean become fragile?"
 
 Dialectic Insight:
   一個好的醫療系統需要同時具備精實的日常運作和冗餘的危機彈性。
-  TEAM model 的 30 天 episode 是否可以作為「模式切換」的觸發機制？
+  某個固定 N-day episode 是否可以作為「模式切換」的觸發機制？
 ```
 
 ### Mode 4: Journal（日誌回顧）
@@ -177,7 +185,7 @@ Dialectic Insight:
 | From | To | Type | Rationale | Evidence | Novelty | Evidence Score |
 |------|----|------|-----------|----------|---------|---------------|
 | E-P-E-R | Safety-II | shares_principle | Both loop-based | E-P-E-R §cycle; S-II §WAD | 0.8 | 0.7 |
-| ProjectB | PartnerA | tensions_with | Redundancy vs lean | ProjectB §disaster; PartnerA §shrink | 0.9 | 0.6 |
+| Platform-A | Platform-B | tensions_with | Redundancy vs lean | Platform-A §disaster; Platform-B §shrink | 0.9 | 0.6 |
 
 ### Bottom-Line Logic
 {一句話}
@@ -187,24 +195,33 @@ Dialectic Insight:
 - [ ] Blog angle: "{title}"
 ```
 
-**Output Destination（v2.1 修訂：Journal 中繼為主）：**
+**Output Destination（v2.2 修訂：Zero-friction journaling）：**
 
-所有 zettel-walk 結果**預設寫入當天的 Heptabase Journal**（而非直接建卡片）。理由：
-- Heptabase MCP 建的卡片落在主空間，無法自動放到 whiteboard → 手動整理成本高
-- Journal 是 Heptabase 原生中繼站：用戶可在 Journal 中瀏覽，好的段落直接「Turn into card」→ 一鍵在當前 whiteboard 上建卡並定位
-- 符合「電馭大腦」哲學：Journal = candidate，人決定升格
+所有 zettel-walk 結果**預設自動 append 到當天 Heptabase Journal**，**跳過** v2.1 的 y/n 確認（對齊 Cyberbrain v3 P5：Journal 是 ephemeral surface，寫入不需 human gate；user 瀏覽 Journal 時即是 review 過程）。
 
-**User 確認流程：**
+**v2.2 User flow（預設）：**
 1. CLI 顯示漫遊結果（path + pattern + link evidence）
-2. 問 user：「寫入今天 Journal？(y/n)」
-   - **y (預設)** → `append_to_journal` 寫入今天 journal + links 寫入 discovered_links.json (review_state: proposed)
-   - **n** → links 仍寫入 discovered_links.json (review_state: rejected)
+2. **自動** `append_to_journal` 寫入今天 journal + links 寫入 discovered_links.json
 3. User 稍後在 Heptabase 瀏覽 Journal，覺得好的 → 右鍵「Turn into card」→ 自動在 whiteboard 上
-4. 下次 `/heptabrain-sync audit` 可偵測哪些 journal 發現已被升格為卡片
+4. User 覺得不好的 Journal 段落 → 刪除該段（Journal 是草稿區；不像主空間卡那麼 canonical）
+5. 下次 `/heptabrain-sync audit` 可偵測哪些 journal 發現已被升格為卡片
+
+**v2.2 opt-out：** `--explicit-confirm` 旗標恢復 v2.1 行為（y/n 確認），給想 old school 的 user 用。
+
+**為什麼從 v2.1 的 prompt 模式改成 v2.2 的 auto 模式：**
+- v2.1 的 y/n 是 UX friction；大多數 user 預設 y，問了只是多一步
+- Journal 本質 = ephemeral surface；user 在 Journal 看到「不好的」想法是正常過程
+- 對齊 Cyberbrain v3 P5「**寫 Journal 不需 human gate**」原則
+- Gemini 2026-04-24 review 明確建議：CLI 開放後應讓 journal append 變 zero-friction
+
+**並非**所有 write 都 auto：
+- 在 whiteboard 主空間 create 卡仍手動（Cyberbrain P5）
+- Edit 既有 canonical 卡仍需 human gate
+- 只有 Journal append 是 zero-friction
 
 ## 5. Discovered Links Registry
 
-每次 zettel-walk 結束時，所有發現的 links 寫入 `_discovered_links.json`：
+每次 zettel-walk 結束時，所有發現的 links 寫入 `_discovered_links.json`（對齊 Cyberbrain v3 Registry Schema v2）：
 
 ```json
 [
@@ -217,17 +234,40 @@ Dialectic Insight:
     "evidence_refs": ["E-P-E-R card §cycle", "Safety-II KB page 3"],
     "novelty_score": 0.8,
     "evidence_score": 0.7,
-    "review_state": "accepted",
+
+    "// v3 Schema v2 provenance fields": "",
+    "link_class": "exploratory",
+    "acceptance_state": "proposed",
+    "scope_type": "cross_whiteboard",
+    "scope_whiteboard_id": null,
+    "source_mode": "zettel-walk:wander",
+    "evidence_kind": ["text_overlap", "shared_actor"],
+    "last_verified_at": "2026-04-06T15:00:00+08:00",
+    "verified_by": "ai",
+
+    "// legacy compat": "",
+    "review_state": "proposed",
     "discovered_at": "2026-04-06T15:00:00+08:00",
     "discovered_by": "zettel-walk wander"
   }
 ]
 ```
 
+**v2.2 link_class 決策規則（對齊 Cyberbrain v3 §5.1 三分法）：**
+
+| Walk mode | Novelty score | 預設 link_class |
+|-----------|--------------|----------------|
+| wander | > 0.8（高 novelty）| `exploratory`（假設型，可能被淘汰）|
+| wander | ≤ 0.8 | `proposed`（較穩定）|
+| shuffle | 任何 | `exploratory`（本質隨機 + 發散）|
+| bridge | `shares_principle` 的 | `proposed`（辯證共通性較穩）|
+| bridge | `tensions_with` 的 | `exploratory`（張力假設）|
+| journal | 任何 | `proposed`（回顧型更穩）|
+
 **用途：**
 - 防止重複發現（下次 walk 前先查 registry）
-- 追蹤哪些 links 被接受/拒絕
-- audit 時找孤兒 links 或低品質 links
+- 追蹤哪些 links 被接受/拒絕 / 升 canonical / 變 stale
+- Audit 時找孤兒 links 或 exploratory 久未升為 proposed/canonical 的（可能是無效連結）
 
 ## 6. Skill Interface
 

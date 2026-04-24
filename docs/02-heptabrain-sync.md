@@ -1,15 +1,24 @@
 # Dev Spec: HeptaBrain Sync (知識萃取式同步)
 
-**Version:** v2.1 FINAL
-**Date:** 2026-04-06
-**Prepared with:** Claude Code (Opus, multi-round Gemini + ChatGPT review)
-**Maintained by:** the Cyberbrain contributors
-**Parent Spec:** `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` (#1)
-**Status:** Ready for implementation
+**Version:** v2.2 DRAFT
+**Date:** 2026-04-24
+**Author:** Architect (Claude Code)
+**Parent Spec:** `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` **v3.0** (2026-04-24)
+**Cyberbrain Role:** Loop 1 — **Crystallize**（memory / spec → HB canonical cards）
+**Status:** DRAFT — 待簽收 (v2.1 shipped behavior 不變，v2.2 新增 v3 alignment + CLI-enabled enhancements)
+
 **Changelog:**
 - v1.0: 雙向內容同步
 - v2.0: State/Knowledge 解耦、URI 參照、knowledge_id registry
-- v2.1: GC command、canonicality metadata-first、authority_status、session_id、collision audit
+- v2.1 FINAL: GC command、canonicality metadata-first、authority_status、session_id、collision audit
+- **v2.2 (2026-04-24):** Aligned to Cyberbrain v3.0:
+  - §0 新增 Four-Loop Role 標示
+  - §2.1 萃取出的 cards 標記 `link_class: canonical`（§2.7 新增）
+  - §2.3 GC 引入 CLI-assisted 半自動（tag rename，仍 human-gated 對既有 canonical 卡）
+  - §2.4 Audit 新增 stale detection（v3 §5.2 lifecycle state）
+  - §2.5 Registry entries 寫入時對齊 v3 Schema v2 provenance fields（若為 link-type metadata）
+  - §3 新增 `audit stale` 子指令
+  - §6 Out of Scope 移除「Whiteboard 組織」與「Tag API」（CLI 已解鎖 tag；組織歸 Propose Links）
 
 ---
 
@@ -31,7 +40,7 @@ Claude Code memory 和 Heptabase 是兩個孤島。v1.0 的「雙向內容同步
 
 ```yaml
 ---
-name: ExampleProject Scaling Strategy
+name: My Feature Strategy
 type: project
 canonicality: knowledge        # 顯式標記
 authority_status: canonical    # 顯式標記
@@ -101,6 +110,18 @@ Card format:
    - 若確認無重複 → 建新卡片
 ```
 
+### 2.1.5 Link Class Policy — v2.2 新增（對齊 Cyberbrain v3 §5.1）
+
+Sync 寫入 HB 的 card，其在 Registry 標記為：
+
+| Artifact | link_class | 理由 |
+|----------|-----------|------|
+| Sync push 結晶化後的 Heptabase card | `canonical` | 經 user-sourced（memory/spec/review 有明確意圖）結晶化，穩定度高 |
+| 若 sync 產生 card ↔ 現有 card 的 Whiteboard Placement 建議連結 | `proposed` | Placement 是 AI 推論，需 user 在 HB GUI accept |
+| Sync 產 card 本身未跟其他 card 直接產連結 | 無 | 該 card entry 存於 `_heptabrain_registry.json`（knowledge registry），不是 `_discovered_links.json` |
+
+Sync 不產 `exploratory` class 的 links（那是 zettel-walk 的領域）。
+
 ### 2.2 Inbound: URI Reference (Heptabase → Session Context)
 
 ```
@@ -119,7 +140,7 @@ Card format:
 ```json
 {
   "session_id": "2026-04-06T16:30",
-  "topic": "ExampleProject strategy",
+  "topic": "my project strategy",
   "pulled_at": "2026-04-06T16:30:00+08:00",
   "refs": [
     {
@@ -132,30 +153,83 @@ Card format:
 }
 ```
 
-### 2.3 Garbage Collection — v2.1 新增
+### 2.3 Garbage Collection — v2.1 + v2.2 CLI-assisted
 
 ```
-/heptabrain-sync gc
+/heptabrain-sync gc              — 列表 + 操作建議（v2.1 行為，預設）
+/heptabrain-sync gc --assist     — v2.2 新增：CLI 半自動，建議 rename 舊卡加 [ARCHIVED] 前綴
+/heptabrain-sync gc confirm      — v2.1：清 registry 記錄
 ```
 
-**Flow:**
+**v2.1 Flow（預設，保守）:**
 
 ```
-1. 掃描 Registry，找所有 superseded_by 非 null 的 entries
-2. 輸出 Markdown 清理待辦：
+1. 掃 Registry，找所有 superseded_by 非 null 的 entries
+2. 輸出 Markdown 清理待辦（user 手動在 HB UI 刪除）
+3. `/heptabrain-sync gc confirm` → 從 registry 移除已清理的 entries
+```
 
-## HeptaBrain GC — 待清理卡片
+**v2.2 Flow（`--assist` 旗標，CLI 半自動）:**
 
-| # | 舊卡片 | 被取代者 | Superseded at |
-|---|--------|----------|---------------|
-| 1 | "ExampleProject Scaling v1" | kb-exampleproject-scaling-v2 | 2026-04-10 |
-| 2 | "PartnerDueDiligence v1" | kb-partner-dd-v2 | 2026-04-12 |
+Gemini 2026-04-24 建議：CLI 開放後可自動在舊卡 rename 加 `[ARCHIVED]` 前綴作為視覺標記，無需刪除即可讓 graph 看出演化軌跡。
 
-請在 Heptabase UI 中刪除以上卡片。
-刪除後執行 `/heptabrain-sync gc confirm` 清除 registry 記錄。
+但 Cyberbrain v3 P5 明示：**edit 既有 canonical 內容必須 human gate**。因此 v2.2 改為「propose + confirm」兩步：
 
-3. User 在 Heptabase UI 手動刪除
-4. `/heptabrain-sync gc confirm` → 從 registry 移除已清理的 entries
+```
+Step 1: `/heptabrain-sync gc --assist`
+  - 掃 Registry 找 superseded_by 非 null
+  - 產出 proposed-renames.md：
+      | 舊卡 id | 現 title | 建議新 title | supersedes_by | 預覽變動 |
+      |--------|---------|------------|-------------|---------|
+      | abc... | "My Feature v1" | "[ARCHIVED] My Feature v1" | kb-v2 | 僅改 title |
+  - 每項產 HB deeplink 方便 user 查看原卡
+  - **不**執行任何寫入
+
+Step 2: User 檢查 proposed-renames.md，刪除他不想改的 rows
+
+Step 3: `/heptabrain-sync gc --assist --commit`
+  - 讀經 user 編輯過的 proposed-renames.md
+  - 對每項走 CLI `heptabase save` + 新 title + 原內容（附一行 note 指向新卡）
+  - 成功 → Registry 該 entry 設 `status: archived`（保留歷史軌跡，不移除）
+  - 失敗 → 報錯，不改 registry
+
+Step 4: `/heptabrain-sync gc confirm`（v2.1 behavior 保留）
+  - 從 registry 真實移除 `status: archived` entries（若 user 想徹底清理）
+```
+
+**為什麼不完全自動：** 即使 CLI 技術上支援 edit，Cyberbrain v3 P5 的 ephemeral-vs-canonical 邊界要求：改動 canonical 卡需 human-confirm，因為：
+- 寫錯了 rollback 困難
+- Cards 可能被其他人（或你過去的自己）在 HB 筆記中引用
+- 視覺 archive 標記會改變卡片在搜尋結果中的呈現
+
+### 2.4 Collision Audit + Stale Detection — v2.2 擴充
+
+```
+/heptabrain-sync audit              — v2.1 collision + orphan（不變）
+/heptabrain-sync audit stale        — v2.2 新增：偵測 stale lifecycle state
+```
+
+**v2.1 collision audit（保留）：**
+
+```
+1. 掃 registry aliases
+2. Semantic search Heptabase 找：
+   a. 多張卡片匹配同一概念？（疑似重複）
+   b. Registry 有但 HB 卡被刪？（孤兒）
+   c. HB 有但 registry 無？（未追蹤）
+```
+
+**v2.2 stale audit（新增，對齊 Cyberbrain v3 §5.2 lifecycle）：**
+
+```
+1. 掃 registry 所有 entries 的 last_verified_at
+2. 超過 180 天未 touch 的 entries 標 stale 候選
+3. 對每個 stale 候選：
+   a. Semantic search HB 看對應 card 是否還存在 + 內容是否大改
+   b. 若存在且內容未變 → 更新 last_verified_at 為今天（remain canonical）
+   c. 若存在但內容大改 → 標 needs_reacceptance + 進 propose-rename queue
+   d. 若不存在 → 標 orphan，進 cleanup queue
+4. Registry 寫回新狀態 + audit report 給 user
 ```
 
 ### 2.4 Collision Audit — v2.1 新增
@@ -183,16 +257,16 @@ Card format:
   "lastSync": "2026-04-06T14:30:00+08:00",
   "entries": [
     {
-      "knowledge_id": "kb-exampleproject-scaling",
+      "knowledge_id": "kb-irehab-scaling",
       "source_system": "memory",
-      "source_file": "project_exampleproject_scaling.md",
+      "source_file": "project_irehab_scaling_strategy.md",
       "canonicality": "knowledge",
       "authority_status": "canonical",
       "content_hash": "sha256:abc123...",
       "supersedes": null,
       "superseded_by": null,
-      "aliases": ["ExampleProject scaling", "ExampleProject 擴展策略"],
-      "heptabase_card_title": "ExampleProject Scaling Strategy — Core Principles",
+      "aliases": ["<primary alias>", "<secondary alias>"],
+      "heptabase_card_title": "My Feature Strategy — Core Principles",
       "synced_at": "2026-04-06T14:30:00+08:00"
     }
   ]
@@ -238,15 +312,20 @@ Card format:
 | Push 成功但 registry 寫入前 crash | 下次 audit 會發現不一致 |
 | GC confirm 但卡片未真正刪除 | Registry 記錄移除 → 不影響功能，audit 會標為 untracked |
 
-## 6. Out of Scope (v2.1)
+## 6. Out of Scope (v2.2)
 
 - 自動觸發 hooks
 - Heptabase → Memory 反向寫入
-- Whiteboard 組織
-- Tag API
 - 三層 entity-version-edge registry
 - ontology.json
-- Formal review state machine
+
+**以下 v2.1 Out of Scope 在 v2.2 改狀態：**
+
+| 原 v2.1 out-of-scope | v2.2 狀態 | 原因 |
+|------------------|---------|------|
+| Whiteboard 組織 | **Moved to `/heptabrain-propose-links`**（見 Cyberbrain v3 §4.2 Converge loop） | v3 新增 Loop 2 = Converge 負責此塊 |
+| Tag API | **Partially enabled**（v2.2 §2.3 `--assist` 可 rename title；full tag CRUD 仍待 Heptabase AI Agent API stable）| CLI release 解鎖 title edit，但全 tag API 尚未穩定 |
+| Formal review state machine | **Moved to Cyberbrain v3 §5.2**（5-state lifecycle 已定義）| Parent spec 正式化 |
 
 ---
 
