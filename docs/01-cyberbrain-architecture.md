@@ -1,6 +1,6 @@
 # Dev Spec: Cyberbrain Architecture (電馭大腦基礎設施)
 
-**Version:** v3.0 DRAFT
+**Version:** v3.0.1 DRAFT (sign-off revisions 2026-04-24 evening)
 **Date:** 2026-04-24
 **Author:** Architect (Claude Code)
 **Status:** DRAFT — 待簽收 before cascading to child spec updates
@@ -11,6 +11,12 @@
 - v1.0: Initial draft
 - v2.0: State/Knowledge 解耦、per-type authority、升維搜尋、link evidence
 - v2.1: GC 機制、discovered_links registry、elevation anchors、bridge dialectic、canonicality metadata-first
+- **v3.0.1 (2026-04-24 evening):** Sign-off round revisions — Gemini + ChatGPT convergence on 5 Critical items + 3 P2s:
+  - §5.2 Lifecycle: 新增 **Link Class × Lifecycle Transition Matrix**（ChatGPT Critical 1）+ **Class Promotion Rule** on accept（Gemini Major 3）
+  - §6 Whiteboard Maturity: 從純 title convention 改為 **local registry + title-as-fallback**（兩 AI 同步 Critical 3 / P2 #6）
+  - §7 Feature Family: 拆為 **MVFF vs Canonical 兩層**（兩 AI 同步 Critical 4 / P1 #5）
+  - §3.3 Registry Migration: 新增 **Audit-Triggered Lazy Write-back**（兩 AI 同步 Critical 5 / P1 #4）
+  - §3.2 Registry Schema v2 擴充 Auto-accept 相關欄位
 - **v3.0 (2026-04-24):** Major revision triggered by Heptabase CLI release. Upgrade from "collection of tools" to "knowledge operating system":
   - §4 Four-Loop Operating Model（取代 Five Improvement Areas）
   - §5 Three Link Classes + 5-state Lifecycle
@@ -196,6 +202,12 @@ CLI release 後，各 client 有各自該做的事，不該 overlap：
   "last_verified_at": "2026-04-24T11:00:00+08:00",
   "verified_by": "ai",
 
+  "// v3.0.1 Auto-accept fields (Propose Links §5.1.1 + §5.2.2 references)": "",
+  "implicit_connection_detected": null,
+  "auto_accept_reason": null,
+  "auto_accept_confidence": null,
+  "promoted_from": null,
+
   "// legacy v2.1 preserved": "",
   "review_state": "proposed",  // deprecated, mirror of acceptance_state
   "discovered_at": "2026-04-06T15:00:00+08:00",
@@ -218,11 +230,56 @@ CLI release 後，各 client 有各自該做的事，不該 overlap：
 | `last_verified_at` | `discovered_at` |
 | `verified_by` | "ai"（AI-discovered 預設）|
 
-**Write 時：** 新 entries 必須填 v2 欄位。舊 entries 讀取時動態補 fallback，但不寫回（避免破壞 audit trail）。
+**Write 時：** 新 entries 必須填 v2 欄位。Legacy entries 讀時動態補 fallback，正常讀寫不寫回（避免破壞 audit trail）。
+
+**Audit-Triggered Lazy Write-back（v3.0.1 新增，兩 AI Critical 5 / P1 #4）：**
+
+純 fallback 長期會讓 JSON 混雜 legacy + v2 格式，下游工具（jq / scripts）解析困難。`/heptabrain-sync audit registry-v2` 提供治理路徑：
+
+```
+1. 讀整份 _discovered_links.json
+2. 對每 entry：
+   a. 套 fallback 補齊 v2 欄位（in-memory）
+   b. 比對原始 entry — 若缺任何 v2 欄位 → 標為 "needs normalization"
+3. 產 migration_report.md：
+   - 共 N 條 legacy entries
+   - 分布：多少靠 discovered_by heuristic / 多少靠 review_state 推斷 / 多少無法可靠推斷
+   - fallback ambiguity 案例（例：discovered_by="manual" 但 review_state 未定）
+4. User 確認後，執行 `--commit` 子指令：
+   - 備份原檔 `_discovered_links.json.v2.1-backup-<timestamp>.json`
+   - 把 normalized entries 寫回主檔
+5. 不靜默 mutate：整個操作留 audit log，備份文件可回溯
+```
+
+**執行頻率：** 每 30 天至少跑一次，或 `_discovered_links.json` 累積 > 100 entries 時。純讀場景無影響；只有 audit 顯式執行時才 write-back。
 
 ### 3.4 Heptabase Reference (`_heptabase_refs.json`) — v2.1 不變
 
 Session-scoped，每次 pull 覆寫。
+
+### 3.5 Whiteboard Maturity Registry (`_whiteboard_maturity.json`) — v3.0.1 新增
+
+Canonical source for whiteboard maturity states, paired with `§6.1` dual-fallback 機制。
+
+```json
+{
+  "version": "1.0",
+  "whiteboards": [
+    {
+      "whiteboard_id": "5540d525-008d-...",
+      "maturity": "forming",
+      "maturity_source": "manual|heuristic|meta_card|title",
+      "last_maturity_reviewed_at": "2026-04-24T11:00:00+08:00",
+      "note": "optional free-form"
+    }
+  ]
+}
+```
+
+**讀寫模式：**
+- **Read：** 所有 skills 在檢查 maturity 前先讀此 registry；若 `whiteboard_id` 不存在 → 走 §6.1 fallback precedence（meta_card → title → density heuristic）
+- **Write 時機：** (1) heuristic 偵測完成後寫回（source=heuristic）；(2) user 手動設定（source=manual）；(3) skill 讀到 `⚙️ Meta` card 時 sync 到 registry（source=meta_card）
+- **Audit：** `last_maturity_reviewed_at` 超過 90 天未更新 → `/heptabrain-sync audit` 建議重跑 density heuristic
 
 ---
 
@@ -323,6 +380,37 @@ accepted     rejected
 | `superseded` | 被更好的 link 取代 | 新 proposed link 覆蓋同 pair，原 link 降級 |
 | `stale` | 久未驗證可能過時 | `last_verified_at` > 180 天 + audit 觸發時標記 |
 
+### 5.2.1 Link Class × Lifecycle Transition Matrix（v3.0.1 新增，ChatGPT Critical 1）
+
+**允許的組合：**
+
+| link_class | allowed acceptance_state |
+|-----------|-------------------------|
+| `canonical` | `accepted`, `stale`, `superseded` |
+| `proposed` | `proposed`, `accepted`, `rejected`, `superseded`, `stale` |
+| `exploratory` | `proposed`, `rejected`, `superseded`, `stale` |
+
+**規則：**
+- `canonical` 不應處於 `proposed` 或 `rejected` 狀態（canonical 意味著已經被驗證）
+- `exploratory` 不直接 accept — 先升為 `proposed`，再進 accepted；**但 class promotion rule（§5.2.2）允許一步完成**
+- Registry 層讀寫時，不符此矩陣的組合 → audit 標 `invalid_combination: true` 進待修 queue
+
+### 5.2.2 Class Promotion Rule on Accept（v3.0.1 新增，Gemini Major 3）
+
+當 link 轉入 `accepted` 時，link_class 自動升級：
+
+| 原 class | 原 state | → accept action 後 class | → accept action 後 state |
+|---------|---------|------------------------|----------------------|
+| `canonical` | any | `canonical`（不變）| `accepted` |
+| `proposed` | `proposed` | `canonical`（升）| `accepted` |
+| `exploratory` | `proposed` | `canonical`（升）| `accepted` |
+
+**Audit trail 保留：** accept 時若發生 class 晉升，必寫 `promoted_from: "<原 class>"` 欄位（registry schema v2 已含，見 §3.2）。讓未來 audit 能追蹤「某個 canonical link 原本是哪種 class」。
+
+**設計意圖：** 人類在 GUI 拉線確認某條 exploratory 假設時，它已經從「AI 推測的 novel 連結」變成「被驗證的 canonical 知識」。一步完成符合直覺，保留 `promoted_from` 給學術追溯用。
+
+**下游 skill 實作：** Propose Links `/heptabrain-propose-links` 的 Auto-accept detection（`DEV_SPEC_HEPTABRAIN_PROPOSE_LINKS.md` §5.1.1）是此 promotion rule 的第一個自動化實作 — 偵測到 whiteboard 實體 connection 匹配時套用此規則。未來其他 skill（如 strategic-review、heptabrain-sync audit）也應共用此規則，不可自建 promotion 邏輯。
+
 ### 5.3 Controlled Edge Vocabulary（11 types — 不變）
 
 **Zettel-Walk 定義的 7 種：** `supports` / `contradicts` / `derives_from` / `applies_to` / `example_of` / `bridge_to` / `tensions_with`
@@ -360,19 +448,58 @@ accepted     rejected
 | `structured` | 已建立主題結構 | 15-40 cards | 定期 audit convergence；可 extract principle card 出去 |
 | `canonical` | 穩定、高語意價值、低頻更動 | 任意 N | 主要用作 reference；少 write；freeze candidate |
 
-### 6.1 Maturity 標記方式
+### 6.1 Maturity 標記方式（v3.0.1 改為 Local Registry + Dual Fallback，兩 AI Critical 3 / P2 #6）
 
-Whiteboard 自身沒有 metadata 欄位（Heptabase API 限制），改用 **whiteboard title convention**：
+Whiteboard 自身沒有 metadata 欄位（Heptabase API 限制）。v3.0 原方案「純 title convention」兩 AI review 皆指出問題（title 污染、user 會改名、無 audit trail）。v3.0.1 改為**三層機制**，按優先順序：
 
-```
-{emoji} {name}  [maturity:{state}]
+**Source precedence（由高至低）：**
 
-範例:
-🌱 My Project Alpha [maturity:forming]
-🌳 Canonical Research Corpus [maturity:canonical]
-```
+1. **Local registry `_whiteboard_maturity.json`**（canonical source）：
 
-若無明示標記 → skill 依 card count heuristic 推斷。
+   ```json
+   {
+     "whiteboards": [
+       {
+         "whiteboard_id": "5540d525-008d-...",
+         "maturity": "forming",
+         "maturity_source": "manual|heuristic|meta_card|title",
+         "last_maturity_reviewed_at": "2026-04-24T11:00:00+08:00",
+         "note": "optional free-form"
+       }
+     ]
+   }
+   ```
+
+2. **`⚙️ Meta` card inside whiteboard**（PKM-native pattern）：
+
+   使用者在 whiteboard 內建一張 title 為 `⚙️ Meta` 或 `#meta` 的卡片，內含 YAML：
+   ```yaml
+   maturity: canonical
+   reviewed_by: user
+   reviewed_at: 2026-04-24
+   note: 已驗證完整 graph，低頻更動
+   ```
+
+   Skill 掃 whiteboard 物件時偵測此 card → 讀 YAML → 寫回 local registry（`maturity_source: meta_card`）。
+
+3. **Title convention**（human-visible fallback only）：
+
+   ```
+   🌱 My Project Alpha [maturity:forming]
+   🌳 Canonical Research Corpus [maturity:canonical]
+   ```
+
+   這是視覺提示方便 user 瀏覽識別；**不是 authoritative**。若 registry 與 title 衝突，以 registry 為準。
+
+4. **Density heuristic（自動推斷，auto-detect fallback）**：
+
+   若 registry + meta_card + title 皆無 → skill 用 `N < 5: seed`、`5 ≤ N ≤ 15: forming`、`15 < N ≤ 40 且 edges ≥ N/3: structured`、`otherwise: structured` 推斷。推斷結果寫入 registry（`maturity_source: heuristic`）供下次直接讀。
+
+**為什麼 Local Registry 為 canonical：**
+- Audit trail：`last_maturity_reviewed_at` 可追蹤 maturity 何時更新
+- User 可改 whiteboard 名稱不破 maturity 狀態（title 是 display，registry 是 state）
+- 可 version controlled / backup 獨立於 Heptabase
+- 未來支援 per-user / per-tenant maturity（若 Heptabase 演進多人協作）
 
 ### 6.2 Maturity-based skill activation
 
@@ -388,19 +515,38 @@ Whiteboard 自身沒有 metadata 欄位（Heptabase API 限制），改用 **whi
 
 Product-development 用的特殊 whiteboard class。**正式升為 first-class。**
 
-### 7.1 最低組成（Minimum Viable Feature Family）
+### 7.1 Two-Level Feature Family（v3.0.1 改為兩層，兩 AI Critical 4 / P1 #5）
 
-以下 5 個元素至少都要 1 個才算 `canonical` maturity 的 feature family：
+兩 AI review 共識：原 v3.0 的「5 個強制元素」門檻對早期 FF whiteboard 太陡峭。MDA 素描**正是**要幫助發掘 principle / lens，卻要等齊全才觸發，邏輯悖反。v3.0.1 改為**兩層 maturity**：
 
-| Element | 來自 | 角色 |
-|---------|------|------|
-| **1 Case Card** | Strategic Review output | 具體事件快照 |
-| **1 Principle Card** | Strategic Review output | 抽象 learnable |
-| **1 Open Question Card** | Strategic Review output 或 raw input | 尚未解決的懸念 |
-| **1 Lens Card 或 MDA Anchor** | Strategic Review lens_pack | 用什麼 lens 看這個 feature family |
-| **≥ 3 Accepted Edges** | Propose Links + manual | 基本網絡結構 |
+#### 7.1.1 Minimum Viable Feature Family (MVFF)
 
-**不夠的 feature family whiteboard → maturity `forming`，不該 canonical。**
+足以觸發 propose-links MDA 素描 + 被歸類為 feature family：
+
+| Element | 最低要求 |
+|---------|---------|
+| **1 Case Card** | 必要 — 一個具體事件或 shipped feature 快照 |
+| **1 Open Question Card** 或 **1 Principle Card**（任一即可）| 必要 — 表明「這是在思考中」 |
+| **1 Lens Card 或 MDA Anchor** | 必要 — 用什麼角度看 |
+| **≥ 1 Proposed Edge** | 必要 — 至少一條 AI 或 human 提議的連結，證明已開始收斂思考 |
+
+符合 MVFF → `maturity: forming`，可跑 propose-links + MDA 素描；素描輸出的 Gap Signal 會明示「尚缺 Principle Card / Open Question」等，指引 user 補齊。
+
+#### 7.1.2 Canonical Feature Family
+
+有完整結構，經過時間 validated：
+
+| Element | 要求 |
+|---------|------|
+| **1 Case Card** | 必要 |
+| **1 Principle Card** | 必要（MVFF 可沒 principle，canonical 必有）|
+| **1 Open Question Card** | 必要 |
+| **1 Lens Card 或 MDA Anchor** | 必要 |
+| **≥ 3 Accepted Edges** | 必要（對齊 §5.2 lifecycle） |
+
+符合 canonical → `maturity: canonical`，進入低頻更動、可當教材 / blog 素材源。
+
+**進程：** MVFF → 累積 → Canonical。不可直接在 empty whiteboard 標 `canonical`。
 
 ### 7.2 Feature Family ≠ Concept Whiteboard
 

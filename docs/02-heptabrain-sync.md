@@ -1,6 +1,6 @@
 # Dev Spec: HeptaBrain Sync (知識萃取式同步)
 
-**Version:** v2.2 DRAFT
+**Version:** v2.2.1 DRAFT (sign-off revisions 2026-04-24 evening)
 **Date:** 2026-04-24
 **Author:** Architect (Claude Code)
 **Parent Spec:** `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` **v3.0** (2026-04-24)
@@ -205,8 +205,9 @@ Step 4: `/heptabrain-sync gc confirm`（v2.1 behavior 保留）
 ### 2.4 Collision Audit + Stale Detection — v2.2 擴充
 
 ```
-/heptabrain-sync audit              — v2.1 collision + orphan（不變）
-/heptabrain-sync audit stale        — v2.2 新增：偵測 stale lifecycle state
+/heptabrain-sync audit                 — v2.1 collision + orphan（不變）
+/heptabrain-sync audit stale           — v2.2 新增：偵測 stale lifecycle state
+/heptabrain-sync audit registry-v2     — v2.2.1 新增：migration lazy write-back（對齊 Cyberbrain v3.0.1 §3.3 Audit-Triggered Lazy Write-back）
 ```
 
 **v2.1 collision audit（保留）：**
@@ -230,6 +231,26 @@ Step 4: `/heptabrain-sync gc confirm`（v2.1 behavior 保留）
    c. 若存在但內容大改 → 標 needs_reacceptance + 進 propose-rename queue
    d. 若不存在 → 標 orphan，進 cleanup queue
 4. Registry 寫回新狀態 + audit report 給 user
+```
+
+**v2.2.1 registry-v2 migration audit（對齊 Cyberbrain v3.0.1 §3.3）：**
+
+```
+/heptabrain-sync audit registry-v2              — dry-run，產出 migration_report.md
+/heptabrain-sync audit registry-v2 --commit     — 實際寫回 normalized entries
+```
+
+Flow：
+```
+1. 讀 _discovered_links.json 每 entry
+2. 對每 legacy entry（缺任何 v2 欄位）套 Cyberbrain v3 §3.3 fallback rules（in-memory）
+3. 分類：
+   - HIGH confidence normalize：所有 v2 欄位皆可靠推斷
+   - MEDIUM：部分欄位 ambiguous（例：discovered_by="manual" 但 review_state 未定）
+   - LOW：需 user 介入
+4. 產 migration_report.md 給 user review
+5. `--commit` 子指令：備份原檔 → 寫回 HIGH + MEDIUM entries → LOW 保留 legacy
+6. 每次執行留 audit log（time / entries changed / backup path）
 ```
 
 ### 2.4 Collision Audit — v2.1 新增

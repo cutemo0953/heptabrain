@@ -1,6 +1,6 @@
 # Dev Spec: Zettel Walk (升維漫遊 — 跨域連結發現)
 
-**Version:** v2.2 DRAFT
+**Version:** v2.2.1 DRAFT (sign-off revisions 2026-04-24 evening)
 **Date:** 2026-04-24
 **Author:** Architect (Claude Code)
 **Parent Spec:** `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` **v3.0** (2026-04-24)
@@ -205,6 +205,26 @@ Dialectic Insight:
 3. User 稍後在 Heptabase 瀏覽 Journal，覺得好的 → 右鍵「Turn into card」→ 自動在 whiteboard 上
 4. User 覺得不好的 Journal 段落 → 刪除該段（Journal 是草稿區；不像主空間卡那麼 canonical）
 5. 下次 `/heptabrain-sync audit` 可偵測哪些 journal 發現已被升格為卡片
+
+**v2.2.1 AI-generated 標示慣例（ChatGPT sign-off Warning 1）：**
+
+每次 `append_to_journal` 寫入段落必以明確 AI header 開頭：
+
+```markdown
+---
+
+## [AI-generated zettel-walk {mode} — unreviewed] | {HH:MM}
+
+...（Zettel-walk 結果段落）...
+
+---
+```
+
+**為什麼要這個標示：**
+- Journal 是 ephemeral surface（符合 P5），但若無標示，AI hypothesis 會慢慢混入使用者原創思考，難辨識
+- User 未來回看 Journal 時明確區分哪些是自己寫的、哪些是 AI 自動產的 unreviewed content
+- `unreviewed` 字串在 Journal 中可被搜尋，user 可批次找「還沒處理的 AI 建議」
+- 「Turn into card」時，user 會刻意拿掉 header — 這個動作本身就是 review 行為
 
 **v2.2 opt-out：** `--explicit-confirm` 旗標恢復 v2.1 行為（y/n 確認），給想 old school 的 user 用。
 
