@@ -1,6 +1,6 @@
 # Dev Spec: Heptabrain Propose Links (whiteboard 內收斂式組織)
 
-**Version:** v1.2 DRAFT
+**Version:** v1.2.1 DRAFT
 **Date:** 2026-04-24
 **Author:** Architect (Claude Code)
 **Parent Spec:** `DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md` **v3.0** (2026-04-24)
@@ -29,6 +29,7 @@
   - **Spatial Anomaly**（Gemini G2）**2026-04-24 實測後 REJECTED** — `get_whiteboard_with_objects` 不返回 x/y/position；等 Heptabase AI Agent API 演進後 revisit
   - **G1 CLI batch dump 拒絕**（ADR PL6 note 更新）— CLI 是 `mcp-remote` wrapper 非 local，MCP-first 結論不變
   - ADR 新增 PL19 / PL20 / PL21（NetworkX / Auto-accept / Spatial-gated）
+- **v1.2.1 (2026-04-24 session 尾):** §2.3 Two-Pass funnel 實作建議新增 **CJK tokenization 注意事項** — TF-IDF 預設 whitespace split 對中/日/韓內容失真；實作 Pass 1 必驗 tokenizer（中文 jieba / 日文 MeCab / 韓文 KoNLPy）
 
 ---
 
@@ -163,6 +164,15 @@ Maturity 偵測：
   - TF-IDF on card titles + tags + first 500 chars
   - Cosine similarity → rank → top 50 pair
 - Pass 2 LLM 對每 pair 做：core principles 萃取 / elevation anchor 映射 / relation_type 決定 / rationale 撰寫 / confidence 評級
+
+**CJK tokenization 注意事項（v1.2.1 補充）：**
+TF-IDF 預設用 whitespace split 對 CJK（中/日/韓）content 會壞掉（整句變一個 token，相似度失真）。實作 Pass 1 時若 card content 包含 CJK，**必須**套 CJK tokenizer：
+- 中文 → `jieba`（`pip install jieba`），常用 `jieba.cut_for_search()` 模式
+- 日文 → `MeCab` + `fugashi` / `janome`
+- 韓文 → `KoNLPy` / `mecab-ko`
+- 混語 detection：用 `langdetect` / `fasttext-langid` 先判語種再挑 tokenizer；不確定時 fallback 多 tokenizer 並取聯集
+
+**實作 gate：** Skill implementation 前必驗這個 Pass 1 步驟對實際 HB whiteboard 內容（多半是中文）跑得對；若 baseline 對中文卡片 cosine similarity 全部趨近於同值 → 確認 tokenizer 沒套對。
 
 ```
 Step 1: Whiteboard discovery
