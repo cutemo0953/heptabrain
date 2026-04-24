@@ -67,6 +67,21 @@ def set_maturity(
     note: str = "",
     now: datetime | None = None,
 ) -> dict:
+    """Upsert a maturity entry, gated by source-authority precedence.
+
+    Returns a structured result:
+      {
+        "registry": <full registry dict>,
+        "applied":  bool,                       # True if on-disk changed
+        "outcome":  "created" | "replaced" | "suppressed",
+        "reason":   str | None,                 # only when suppressed
+        "suppressed_by": {"source": ..., "authority": ...} | None,
+      }
+
+    `suppressed` happens when an existing entry has stricter authority than the
+    incoming write (Codex P2 #1 fix — callers can distinguish write-applied from
+    write-dropped instead of relying on silent precedence).
+    """
     if maturity not in VALID_MATURITIES:
         raise ValueError(f"invalid maturity: {maturity!r}")
     if source not in VALID_SOURCES:
@@ -92,16 +107,45 @@ def set_maturity(
 
     if existing_idx is None:
         registry["whiteboards"].append(new_entry)
-    else:
-        existing = registry["whiteboards"][existing_idx]
-        existing_authority = SOURCE_AUTHORITY.get(existing.get("maturity_source", ""), 0)
-        new_authority = SOURCE_AUTHORITY[source]
-        if new_authority >= existing_authority:
-            registry["whiteboards"][existing_idx] = new_entry
-        # else: keep higher-authority existing entry, silently drop the new write
+        atomic_write_json(registry_path, registry)
+        return {
+            "registry": registry,
+            "applied": True,
+            "outcome": "created",
+            "reason": None,
+            "suppressed_by": None,
+        }
 
-    atomic_write_json(registry_path, registry)
-    return registry
+    existing = registry["whiteboards"][existing_idx]
+    existing_source = existing.get("maturity_source", "")
+    existing_authority = SOURCE_AUTHORITY.get(existing_source, 0)
+    new_authority = SOURCE_AUTHORITY[source]
+
+    if new_authority >= existing_authority:
+        registry["whiteboards"][existing_idx] = new_entry
+        atomic_write_json(registry_path, registry)
+        return {
+            "registry": registry,
+            "applied": True,
+            "outcome": "replaced",
+            "reason": None,
+            "suppressed_by": None,
+        }
+
+    # Lower authority than existing — do NOT write. No file touch.
+    return {
+        "registry": registry,
+        "applied": False,
+        "outcome": "suppressed",
+        "reason": (
+            f"source={source!r} (authority={new_authority}) lower than existing "
+            f"source={existing_source!r} (authority={existing_authority})"
+        ),
+        "suppressed_by": {
+            "source": existing_source,
+            "authority": existing_authority,
+        },
+    }
 
 
 def is_stale(

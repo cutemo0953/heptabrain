@@ -76,8 +76,10 @@ def test_get_maturity_miss_returns_none():
 
 def test_set_maturity_new_entry(tmp_path: Path):
     p = tmp_path / "m.json"
-    reg = set_maturity("wb-new", "forming", "manual", p)
-    assert get_maturity("wb-new", reg) == ("forming", "manual")
+    result = set_maturity("wb-new", "forming", "manual", p)
+    assert result["applied"] is True
+    assert result["outcome"] == "created"
+    assert get_maturity("wb-new", result["registry"]) == ("forming", "manual")
 
     on_disk = load_maturity_registry(p)
     assert get_maturity("wb-new", on_disk) == ("forming", "manual")
@@ -86,7 +88,9 @@ def test_set_maturity_new_entry(tmp_path: Path):
 def test_set_maturity_upgrade_overwrites(tmp_path: Path):
     p = tmp_path / "m.json"
     set_maturity("wb-1", "seed", "heuristic", p)
-    set_maturity("wb-1", "forming", "manual", p)  # manual > heuristic → overwrite
+    result = set_maturity("wb-1", "forming", "manual", p)  # manual > heuristic
+    assert result["applied"] is True
+    assert result["outcome"] == "replaced"
 
     reg = load_maturity_registry(p)
     assert get_maturity("wb-1", reg) == ("forming", "manual")
@@ -96,10 +100,25 @@ def test_set_maturity_upgrade_overwrites(tmp_path: Path):
 def test_lower_authority_source_does_not_overwrite_higher(tmp_path: Path):
     p = tmp_path / "m.json"
     set_maturity("wb-1", "forming", "manual", p)
-    set_maturity("wb-1", "seed", "heuristic", p)  # heuristic < manual → ignored
+    result = set_maturity("wb-1", "seed", "heuristic", p)  # heuristic < manual
+
+    assert result["applied"] is False
+    assert result["outcome"] == "suppressed"
+    assert result["reason"] is not None
+    assert "heuristic" in result["reason"]
+    assert result["suppressed_by"]["source"] == "manual"
 
     reg = load_maturity_registry(p)
     assert get_maturity("wb-1", reg) == ("forming", "manual")
+
+
+def test_suppressed_write_does_not_touch_disk(tmp_path: Path):
+    p = tmp_path / "m.json"
+    set_maturity("wb-1", "forming", "manual", p)
+    mtime_before = p.stat().st_mtime_ns
+    result = set_maturity("wb-1", "seed", "heuristic", p)
+    assert result["outcome"] == "suppressed"
+    assert p.stat().st_mtime_ns == mtime_before
 
 
 def test_equal_authority_source_replaces_with_fresh_timestamp(tmp_path: Path):
@@ -107,7 +126,8 @@ def test_equal_authority_source_replaces_with_fresh_timestamp(tmp_path: Path):
     old = datetime(2026, 1, 1, tzinfo=timezone.utc)
     new = datetime(2026, 4, 24, tzinfo=timezone.utc)
     set_maturity("wb-1", "seed", "heuristic", p, now=old)
-    set_maturity("wb-1", "forming", "heuristic", p, now=new)
+    result = set_maturity("wb-1", "forming", "heuristic", p, now=new)
+    assert result["outcome"] == "replaced"
 
     reg = load_maturity_registry(p)
     entry = reg["whiteboards"][0]
@@ -178,10 +198,11 @@ def test_stale_threshold_is_ninety_days():
 def test_find_stale_entries(tmp_path: Path):
     p = tmp_path / "m.json"
     now = datetime(2026, 4, 25, tzinfo=timezone.utc)
-    set_maturity("wb-fresh", "forming", "manual", p, now=now)
-    set_maturity(
+    r1 = set_maturity("wb-fresh", "forming", "manual", p, now=now)
+    r2 = set_maturity(
         "wb-old", "seed", "heuristic", p, now=now - timedelta(days=STALE_REVIEW_DAYS + 1)
     )
+    assert r1["applied"] and r2["applied"]
 
     reg = load_maturity_registry(p)
     stale = find_stale_entries(reg, now=now)

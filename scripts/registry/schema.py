@@ -3,21 +3,31 @@
 Per DEV_SPEC_CYBERBRAIN_ARCHITECTURE.md §3.2. v2 provenance fields are optional
 in the JSON schema so legacy v2.1 entries still validate; `is_v2_complete()`
 distinguishes complete-v2 from legacy-fallback entries.
+
+Validation has three layers: (1) JSON Schema structural check, (2) ISO-8601
+timestamp parse on the two date-time fields, (3) lifecycle class×state
+combination check from §5.2.1. All three are folded into `validate_entry()`
+so callers get one error list.
 """
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from scripts.registry.lifecycle import audit_combination
+
 SCHEMA_PATH = (
     Path(__file__).resolve().parent.parent.parent
     / "registry-schemas"
     / "discovered_links.v2.schema.json"
 )
+
+DATETIME_FIELDS: tuple[str, ...] = ("discovered_at", "last_verified_at")
 
 V2_REQUIRED_FIELDS: tuple[str, ...] = (
     "link_class",
@@ -49,11 +59,36 @@ def _item_validator() -> Draft202012Validator:
     return Draft202012Validator(item_schema)
 
 
+def _parse_iso_datetime(value: str) -> bool:
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return True
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def _semantic_errors(entry: dict[str, Any]) -> list[str]:
+    errors = []
+    for field in DATETIME_FIELDS:
+        value = entry.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not _parse_iso_datetime(value):
+            errors.append(f"{field}: not a valid ISO-8601 datetime")
+
+    issue = audit_combination(entry)
+    if issue is not None:
+        errors.append(f"(root): {issue['reason']}")
+
+    return errors
+
+
 def validate_entry(entry: dict[str, Any]) -> list[str]:
     errors = []
     for err in _item_validator().iter_errors(entry):
         path = "/".join(str(p) for p in err.absolute_path) or "(root)"
         errors.append(f"{path}: {err.message}")
+    errors.extend(_semantic_errors(entry))
     return errors
 
 

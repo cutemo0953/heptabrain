@@ -125,6 +125,42 @@ def test_validate_registry_collects_all():
     assert problems[0][0] == 1
 
 
+def test_bad_discovered_at_format_flagged():
+    bad = _legacy_entry()
+    bad["discovered_at"] = "not a real datetime"
+    errs = validate_entry(bad)
+    assert any("discovered_at" in e and "ISO-8601" in e for e in errs)
+
+
+def test_bad_last_verified_at_format_flagged():
+    bad = _v2_complete_entry()
+    bad["last_verified_at"] = "bad"
+    errs = validate_entry(bad)
+    assert any("last_verified_at" in e and "ISO-8601" in e for e in errs)
+
+
+def test_iso_with_z_suffix_validates():
+    entry = _v2_complete_entry()
+    entry["last_verified_at"] = "2026-04-25T14:00:00Z"
+    assert validate_entry(entry) == []
+
+
+def test_invalid_class_state_combination_flagged():
+    bad = _v2_complete_entry()
+    bad["link_class"] = "exploratory"
+    bad["acceptance_state"] = "accepted"
+    errs = validate_entry(bad)
+    assert any("§5.2.1" in e for e in errs)
+
+
+def test_invalid_canonical_proposed_combination_flagged():
+    bad = _v2_complete_entry()
+    bad["link_class"] = "canonical"
+    bad["acceptance_state"] = "proposed"
+    errs = validate_entry(bad)
+    assert any("§5.2.1" in e for e in errs)
+
+
 def test_required_fields_match_spec():
     assert set(V2_REQUIRED_FIELDS) == {
         "link_class",

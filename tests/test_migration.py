@@ -1,8 +1,12 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.registry.migration import (
+    AmbiguousEntriesError,
     commit_lazy_writeback,
+    detect_ambiguities,
     fallback_legacy_entry,
     generate_migration_report,
 )
@@ -147,6 +151,74 @@ def test_evidence_kind_empty_when_no_kb():
     assert out["evidence_kind"] == []
 
 
+def test_manual_entry_verified_by_is_human():
+    out = fallback_legacy_entry(_legacy_manual_entry())
+    assert out["verified_by"] == "human"
+
+
+def test_fallback_normalizes_whitespace_in_discovered_by():
+    entry = _legacy_zettel_entry()
+    entry["discovered_by"] = "  zettel-walk   wander  "
+    out = fallback_legacy_entry(entry)
+    assert out["source_mode"] == "zettel-walk:wander"
+    # original entry preserved as-is (audit trail)
+    assert entry["discovered_by"] == "  zettel-walk   wander  "
+
+
+def test_fallback_normalizes_case_in_discovered_by():
+    entry = _legacy_zettel_entry()
+    entry["discovered_by"] = "Manual"
+    out = fallback_legacy_entry(entry)
+    assert out["link_class"] == "canonical"
+    assert out["source_mode"] == "manual"
+    assert out["verified_by"] == "human"
+
+
+def test_substring_match_does_not_trigger_token():
+    # "manualize" contains substring "manual" but token-based inference should not fire
+    entry = _legacy_zettel_entry()
+    entry["discovered_by"] = "manualize-review"
+    out = fallback_legacy_entry(entry)
+    assert out["link_class"] == "proposed"
+    assert out["verified_by"] == "ai"
+
+
+# ---------- detect_ambiguities ----------
+
+
+def test_conflicting_tokens_flagged():
+    entry = _legacy_zettel_entry()
+    entry["discovered_by"] = "manual propose-links"
+    entry["review_state"] = "proposed"
+    notes = detect_ambiguities(entry)
+    assert any("conflicting provenance" in n for n in notes)
+
+
+def test_unknown_review_state_flagged():
+    entry = _legacy_zettel_entry()
+    entry["review_state"] = "stale"  # valid acceptance state but NOT a legacy review_state
+    notes = detect_ambiguities(entry)
+    assert any("review_state='stale'" in n for n in notes)
+
+
+def test_unknown_review_state_still_defaults_to_proposed():
+    entry = _legacy_zettel_entry()
+    entry["review_state"] = "stale"
+    out = fallback_legacy_entry(entry)
+    assert out["acceptance_state"] == "proposed"
+
+
+def test_whitespace_in_discovered_by_flagged_as_ambiguous():
+    entry = _legacy_zettel_entry()
+    entry["discovered_by"] = "  zettel-walk wander  "
+    notes = detect_ambiguities(entry)
+    assert any("leading/trailing whitespace" in n for n in notes)
+
+
+def test_clean_zettel_entry_has_no_ambiguity():
+    assert detect_ambiguities(_legacy_zettel_entry()) == []
+
+
 # ---------- generate_migration_report ----------
 
 
@@ -225,3 +297,39 @@ def test_commit_backup_suffix_format(tmp_path: Path):
     # Spec §3.2: `_discovered_links.json.v2.1-backup-<ts>.json`
     assert backup.name.startswith("_discovered_links.json.v2.1-backup-")
     assert backup.name.endswith(".json")
+
+
+def test_commit_blocks_on_ambiguous_by_default(tmp_path: Path):
+    entry = _legacy_zettel_entry()
+    entry["discovered_by"] = "manual propose-links"
+    entry["review_state"] = "proposed"
+    reg = _write_registry(tmp_path, [entry])
+
+    with pytest.raises(AmbiguousEntriesError) as excinfo:
+        commit_lazy_writeback(reg)
+    assert len(excinfo.value.ambiguities) == 1
+    # main file untouched on block
+    on_disk = json.loads(reg.read_text(encoding="utf-8"))
+    assert on_disk[0]["discovered_by"] == "manual propose-links"
+    assert "link_class" not in on_disk[0]
+
+
+def test_commit_allow_ambiguous_overrides(tmp_path: Path):
+    entry = _legacy_zettel_entry()
+    entry["discovered_by"] = "manual propose-links"
+    entry["review_state"] = "proposed"
+    reg = _write_registry(tmp_path, [entry])
+
+    backup = commit_lazy_writeback(reg, allow_ambiguous=True)
+    assert backup.exists()
+    normalized = json.loads(reg.read_text(encoding="utf-8"))
+    assert is_v2_complete(normalized[0])
+
+
+def test_commit_blocks_on_unknown_review_state(tmp_path: Path):
+    entry = _legacy_zettel_entry()
+    entry["review_state"] = "halfway"
+    reg = _write_registry(tmp_path, [entry])
+
+    with pytest.raises(AmbiguousEntriesError):
+        commit_lazy_writeback(reg)

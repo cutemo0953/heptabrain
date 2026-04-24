@@ -50,18 +50,29 @@ def apply_acceptance(entry: dict[str, Any]) -> dict[str, Any]:
     if "link_class" not in entry or entry["link_class"] is None:
         raise ValueError("entry has no link_class; cannot apply acceptance")
 
-    out = deepcopy(entry)
-    original_class = out["link_class"]
+    original_class = entry["link_class"]
+    if original_class not in ("canonical", "proposed", "exploratory"):
+        raise ValueError(f"unknown link_class: {original_class!r}")
 
+    current_state = entry.get("acceptance_state")
+
+    # Idempotent no-op: already accepted
+    if current_state == "accepted":
+        return deepcopy(entry)
+
+    # Gate per §5.4: only proposed → accepted and stale → accepted are legal.
+    # rejected and superseded are terminal. None is treated as "proposed" default.
+    effective_state = current_state if current_state is not None else "proposed"
+    if not is_valid_state_transition(effective_state, "accepted"):
+        raise ValueError(
+            f"cannot transition from acceptance_state={current_state!r} to 'accepted' per §5.4"
+        )
+
+    out = deepcopy(entry)
     if original_class in ("proposed", "exploratory"):
         out["promoted_from"] = original_class
         out["link_class"] = "canonical"
-    elif original_class == "canonical":
-        # already canonical; leave promoted_from untouched
-        pass
-    else:
-        raise ValueError(f"unknown link_class: {original_class!r}")
-
+    # canonical: leave promoted_from untouched
     out["acceptance_state"] = "accepted"
     return out
 

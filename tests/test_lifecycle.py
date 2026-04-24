@@ -127,6 +127,59 @@ def test_post_promotion_combination_is_valid():
         assert is_valid_combination(out["link_class"], out["acceptance_state"])
 
 
+def test_cannot_revive_rejected():
+    entry = {"link_class": "proposed", "acceptance_state": "rejected"}
+    with pytest.raises(ValueError, match=r"§5\.4"):
+        apply_acceptance(entry)
+
+
+def test_cannot_revive_superseded():
+    entry = {"link_class": "canonical", "acceptance_state": "superseded"}
+    with pytest.raises(ValueError, match=r"§5\.4"):
+        apply_acceptance(entry)
+
+
+def test_stale_to_accepted_allowed_with_promotion():
+    entry = {"link_class": "proposed", "acceptance_state": "stale"}
+    out = apply_acceptance(entry)
+    assert out["link_class"] == "canonical"
+    assert out["acceptance_state"] == "accepted"
+    assert out["promoted_from"] == "proposed"
+
+
+def test_canonical_stale_accept_stays_canonical():
+    entry = {"link_class": "canonical", "acceptance_state": "stale"}
+    out = apply_acceptance(entry)
+    assert out["link_class"] == "canonical"
+    assert out["acceptance_state"] == "accepted"
+    assert "promoted_from" not in out
+
+
+def test_already_accepted_is_noop():
+    entry = {
+        "link_class": "canonical",
+        "acceptance_state": "accepted",
+        "promoted_from": None,
+    }
+    out = apply_acceptance(entry)
+    assert out == entry
+
+
+def test_already_accepted_does_not_mutate_input():
+    entry = {"link_class": "proposed", "acceptance_state": "accepted"}
+    before = dict(entry)
+    apply_acceptance(entry)
+    assert entry == before
+
+
+def test_missing_acceptance_state_treated_as_proposed():
+    entry = {"link_class": "exploratory"}
+    out = apply_acceptance(entry)
+    assert out["link_class"] == "canonical"
+    assert out["acceptance_state"] == "accepted"
+    assert out["promoted_from"] == "exploratory"
+
+
 # ---------- audit_combination ----------
 
 
