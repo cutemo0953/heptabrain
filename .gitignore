@@ -12,3 +12,6 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Phase 1+ propose-links dry-run output (generated, per-run)
+/propose_links/

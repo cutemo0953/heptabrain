@@ -1,0 +1,170 @@
+{
+  "_meta": {
+    "fixture_purpose": "Phase 1 propose-links dry-run testing per IMPLEMENTATION_PLAN_PHASE_0_1.md §4 + ChatGPT caveat 2",
+    "designed_pairs": {
+      "obvious_link_en": ["card-en-1", "card-en-2"],
+      "obvious_link_zh": ["card-zh-1", "card-zh-2"],
+      "contradiction": ["card-en-3", "card-en-4"],
+      "duplicate_candidate": ["card-zh-1", "card-zh-2"],
+      "isolated_en": "card-en-5-isolated",
+      "isolated_zh": "card-zh-5-isolated"
+    },
+    "existing_connections_count": 3
+  },
+  "whiteboards": [
+    {
+      "id": "wb-mock-en-zh-001",
+      "name": "Mock Whiteboard EN+ZH (Phase 1 fixture)",
+      "objects": [
+        {
+          "id": "card-en-1",
+          "type": "card",
+          "title": "Feedback Loop Theory in Engineering",
+          "content": "Feedback loops underpin every adaptive engineering system. A signal is observed, compared against a target, and the gap drives correction. This pattern recurs in control theory, software incident response, and continuous deployment pipelines. Without measurable feedback the system cannot self-correct.",
+          "tags": ["feedback", "engineering", "control-theory"],
+          "lastEdited": "2026-04-20T10:00:00+08:00"
+        },
+        {
+          "id": "card-en-2",
+          "type": "card",
+          "title": "Retrospectives as Feedback Mechanism",
+          "content": "A team retrospective is an explicit feedback loop. Each iteration the team observes outcomes, compares them to intent, and proposes corrections for the next iteration. The retrospective embodies the same observe-compare-correct cycle described in feedback loop theory.",
+          "tags": ["feedback", "agile", "retrospective"],
+          "lastEdited": "2026-04-21T11:00:00+08:00"
+        },
+        {
+          "id": "card-en-3",
+          "type": "card",
+          "title": "Premature Optimization is Evil",
+          "content": "Knuth's famous warning: premature optimization is the root of all evil in programming. Optimize only after profiling reveals an actual bottleneck. Most programs spend their time in a small fraction of their code.",
+          "tags": ["optimization", "knuth", "performance"],
+          "lastEdited": "2026-04-15T09:00:00+08:00"
+        },
+        {
+          "id": "card-en-4",
+          "type": "card",
+          "title": "Performance Optimization Patterns",
+          "content": "Profile first, then optimize the hot path. Common patterns include caching repeated computation, batching IO, and avoiding allocation in tight loops. Optimization without profiling is guesswork.",
+          "tags": ["optimization", "performance", "profiling"],
+          "lastEdited": "2026-04-16T09:00:00+08:00"
+        },
+        {
+          "id": "card-en-5-isolated",
+          "type": "card",
+          "title": "Empty Card EN",
+          "content": "",
+          "tags": [],
+          "lastEdited": "2026-04-22T12:00:00+08:00"
+        },
+        {
+          "id": "card-zh-1",
+          "type": "card",
+          "title": "反饋迴路與系統設計",
+          "content": "反饋迴路是任何適應性工程系統的基礎。系統觀察訊號、與目標比對、由差距驅動修正。這個模式出現在控制理論、軟體事件響應、與持續部署流程中。沒有可量測的反饋，系統無法自我修正。",
+          "tags": ["反饋", "工程", "控制理論"],
+          "lastEdited": "2026-04-20T10:00:00+08:00"
+        },
+        {
+          "id": "card-zh-2",
+          "type": "card",
+          "title": "迴路設計中的反饋機制",
+          "content": "反饋迴路是適應性工程系統的核心。系統觀察訊號、與目標比對、根據差距進行修正。這個模式出現在控制理論、軟體事件處理、與持續部署管線中。可量測的反饋是系統能夠自我修正的前提。",
+          "tags": ["反饋", "工程", "迴路"],
+          "lastEdited": "2026-04-20T11:00:00+08:00"
+        },
+        {
+          "id": "card-zh-3",
+          "type": "card",
+          "title": "敏捷開發 Sprint 規劃",
+          "content": "Sprint 規劃會議在每個迭代開始前舉行。團隊與產品負責人共同決定該 sprint 要交付的 user story。規劃時要考慮容量、故事點估算、與依賴順序。",
+          "tags": ["敏捷", "sprint", "規劃"],
+          "lastEdited": "2026-04-18T14:00:00+08:00"
+        },
+        {
+          "id": "card-zh-4",
+          "type": "card",
+          "title": "用戶故事撰寫指南",
+          "content": "好的 user story 遵循 As a... I want... So that... 結構。要包含驗收條件，並且小到能在一個 sprint 內完成。避免技術術語，從使用者角度描述價值。",
+          "tags": ["敏捷", "user-story", "需求"],
+          "lastEdited": "2026-04-19T15:00:00+08:00"
+        },
+        {
+          "id": "card-zh-5-isolated",
+          "type": "card",
+          "title": "空卡片",
+          "content": "",
+          "tags": [],
+          "lastEdited": "2026-04-22T13:00:00+08:00"
+        },
+        {
+          "id": "section-1-not-analyzable",
+          "type": "section",
+          "title": "Section divider — should be skipped",
+          "content": "",
+          "tags": [],
+          "lastEdited": "2026-04-22T14:00:00+08:00"
+        },
+        {
+          "id": "image-1-not-analyzable",
+          "type": "image",
+          "url": "https://example.com/image.png",
+          "lastEdited": "2026-04-22T15:00:00+08:00"
+        },
+        {
+          "id": "pdf-1",
+          "type": "pdfCard",
+          "title": "Reference PDF — Feedback Control Theory (Astrom 2008)",
+          "tags": ["feedback", "reference"],
+          "lastEdited": "2026-04-19T10:00:00+08:00"
+        }
+      ],
+      "connections": [
+        {"from": "card-en-1", "to": "card-en-2", "label": "supports"},
+        {"from": "card-en-3", "to": "card-en-4", "label": "contradicts"},
+        {"from": "card-zh-1", "to": "card-zh-2", "label": "derives_from"}
+      ]
+    },
+    {
+      "id": "wb-mock-large-001",
+      "name": "Mock Whiteboard Large (51 cards, hard-stop tier)",
+      "objects": [],
+      "connections": [],
+      "_synthetic_card_count": 51,
+      "_note": "Build .objects programmatically in test setup if needed; hard-stop tier triggers on count > 50"
+    },
+    {
+      "id": "wb-mock-tiny-001",
+      "name": "Mock Whiteboard Tiny (4 cards, small_no_cluster tier)",
+      "objects": [
+        {"id": "tiny-1", "type": "card", "title": "Tiny 1", "content": "Tiny one.", "tags": []},
+        {"id": "tiny-2", "type": "card", "title": "Tiny 2", "content": "Tiny two.", "tags": []},
+        {"id": "tiny-3", "type": "card", "title": "Tiny 3", "content": "Tiny three.", "tags": []},
+        {"id": "tiny-4", "type": "card", "title": "Tiny 4", "content": "Tiny four.", "tags": []}
+      ],
+      "connections": []
+    },
+    {
+      "id": "wb-mock-meta-001",
+      "name": "Mock Whiteboard with Meta Card (maturity detect test)",
+      "objects": [
+        {
+          "id": "meta-card-1",
+          "type": "card",
+          "title": "⚙️ Meta",
+          "content": "---\nmaturity: structured\nlast_reviewed: 2026-04-20\n---\nThis whiteboard organizes feedback loop research.",
+          "tags": ["meta"]
+        },
+        {"id": "wb-meta-card-2", "type": "card", "title": "Some content", "content": "lorem", "tags": []}
+      ],
+      "connections": []
+    },
+    {
+      "id": "wb-mock-title-maturity-001",
+      "name": "Mock Whiteboard [maturity:forming] (title-encoded maturity)",
+      "objects": [
+        {"id": "tm-card-1", "type": "card", "title": "Card 1", "content": "x", "tags": []}
+      ],
+      "connections": []
+    }
+  ]
+}
