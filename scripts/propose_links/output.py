@@ -69,8 +69,10 @@ def dryrun_filename(
 def render_dryrun_markdown(
     inventory: dict[str, Any],
     maturity: tuple[str, str],
-    pair_scores: list[tuple[int, int, float]],
+    pair_scores: list[tuple],  # tuple-3 (i, j, score) or tuple-4 (i, j, score, status)
     diagnostics: dict[str, Any],
+    *,
+    status_summary: dict[str, int] | None = None,
 ) -> str:
     lines: list[str] = []
     name = inventory.get("whiteboard_name", "(unnamed)")
@@ -80,6 +82,9 @@ def render_dryrun_markdown(
     existing = inventory.get("existing_connections", [])
     scale = inventory.get("scale_tier", "unknown")
     mat, mat_src = maturity
+
+    # Phase 2.1: detect classified-pair shape (4-tuple with status)
+    has_status = bool(pair_scores) and len(pair_scores[0]) >= 4
 
     lines.append(f"# Propose-Links Dry-Run — {name}")
     lines.append("")
@@ -95,6 +100,10 @@ def render_dryrun_markdown(
         lines.append("- **Skipped object types:** (none)")
 
     lines.append(f"- **Existing connections:** {len(existing)}")
+    if status_summary:
+        summary_parts = [f"{v} {k}" for k, v in status_summary.items() if v]
+        if summary_parts:
+            lines.append(f"- **Pair diff:** {' · '.join(summary_parts)}")
     lines.append("")
 
     # Existing connections
@@ -132,18 +141,31 @@ def render_dryrun_markdown(
         next10 = pair_scores[5:15]
         appendix = pair_scores[15:]
 
-        def _table_lines(section_pairs: list[tuple[int, int, float]], start_rank: int) -> list[str]:
-            out = [
-                "| Rank | Card A | Card B | Score |",
-                "|------|--------|--------|-------|",
-            ]
-            for offset, (i, j, score) in enumerate(section_pairs):
+        def _table_lines(section_pairs: list[tuple], start_rank: int) -> list[str]:
+            if has_status:
+                out = [
+                    "| Rank | Card A | Card B | Score | Status |",
+                    "|------|--------|--------|-------|--------|",
+                ]
+            else:
+                out = [
+                    "| Rank | Card A | Card B | Score |",
+                    "|------|--------|--------|-------|",
+                ]
+            for offset, pair in enumerate(section_pairs):
                 rank = start_rank + offset
+                i, j, score = pair[0], pair[1], pair[2]
                 a = cards[i]
                 b = cards[j]
                 a_label = f"`{a.get('id', '?')}` — {a.get('title') or '(untitled)'}"
                 b_label = f"`{b.get('id', '?')}` — {b.get('title') or '(untitled)'}"
-                out.append(f"| {rank} | {a_label} | {b_label} | {score:.4f} |")
+                if has_status:
+                    status = pair[3]
+                    out.append(
+                        f"| {rank} | {a_label} | {b_label} | {score:.4f} | `{status}` |"
+                    )
+                else:
+                    out.append(f"| {rank} | {a_label} | {b_label} | {score:.4f} |")
             return out
 
         lines.append("## ⭐ Top 5 — must-review high-signal pairs")

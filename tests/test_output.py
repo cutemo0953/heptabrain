@@ -291,3 +291,48 @@ def test_render_handles_untitled_card():
         inv, ("forming", "heuristic"), [(0, 1, 0.5)], _sample_diag()
     )
     assert "(untitled)" in md
+
+
+# ---------- Phase 2.1: status column ----------
+
+
+def test_render_with_status_adds_column_and_summary():
+    classified = [(0, 1, 0.5, "NEW"), (0, 2, 0.3, "EXISTS")]
+    md = render_dryrun_markdown(
+        _sample_inventory(),
+        ("forming", "heuristic"),
+        classified,
+        _sample_diag(),
+        status_summary={"NEW": 1, "EXISTS": 1, "REDUNDANT": 0},
+    )
+    assert "| Rank | Card A | Card B | Score | Status |" in md
+    assert "`NEW`" in md
+    assert "`EXISTS`" in md
+    assert "Pair diff" in md
+    assert "1 NEW" in md
+    assert "1 EXISTS" in md
+
+
+def test_render_without_status_keeps_legacy_table():
+    md = render_dryrun_markdown(
+        _sample_inventory(),
+        ("forming", "heuristic"),
+        [(0, 1, 0.5)],  # 3-tuple, no status
+        _sample_diag(),
+    )
+    assert "| Rank | Card A | Card B | Score |" in md
+    assert "Status" not in md
+
+
+def test_render_status_summary_omits_zero_buckets():
+    classified = [(0, 1, 0.5, "NEW")]
+    md = render_dryrun_markdown(
+        _sample_inventory(),
+        ("forming", "heuristic"),
+        classified,
+        _sample_diag(),
+        status_summary={"NEW": 1, "EXISTS": 0, "REDUNDANT": 0},
+    )
+    assert "1 NEW" in md
+    assert "EXISTS" not in md.split("Pair diff")[1].split("\n")[0]
+    assert "REDUNDANT" not in md.split("Pair diff")[1].split("\n")[0]

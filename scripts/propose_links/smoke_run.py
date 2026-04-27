@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from scripts.propose_links.connection_diff import classify_pairs, diff_summary
 from scripts.propose_links.inventory import build_inventory
 from scripts.propose_links.maturity_detect import detect_maturity
 from scripts.propose_links.output import dryrun_filename, render_dryrun_markdown
@@ -211,7 +212,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[smoke] CJK gate: FAIL — {e}", file=sys.stderr)
         return 1
 
-    md = render_dryrun_markdown(inventory, maturity, pair_scores, diagnostics)
+    classified = classify_pairs(
+        pair_scores, inventory["cards"], inventory["existing_connections"]
+    )
+    summary = diff_summary(classified)
+    print(f"[smoke] connection diff: {summary}", file=sys.stderr)
+
+    md = render_dryrun_markdown(
+        inventory, maturity, classified, diagnostics, status_summary=summary
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / dryrun_filename(
         inventory["whiteboard_name"], output_dir=out_dir
@@ -221,10 +230,14 @@ def main(argv: list[str] | None = None) -> int:
 
     # Sanity-print top 3 pairs for human eyeballing
     print("\n[smoke] Top 3 pairs:", file=sys.stderr)
-    for rank, (i, j, score) in enumerate(pair_scores[:3], 1):
+    for rank, (i, j, score, status) in enumerate(classified[:3], 1):
         a = inventory["cards"][i]
         b = inventory["cards"][j]
-        print(f"  {rank}. {score:.4f}  {a['title'][:30]} ↔ {b['title'][:30]}", file=sys.stderr)
+        print(
+            f"  {rank}. [{status:7s}] {score:.4f}  "
+            f"{a['title'][:30]} ↔ {b['title'][:30]}",
+            file=sys.stderr,
+        )
 
     return 0
 

@@ -18,6 +18,7 @@ from scripts.lib.mcp_client import (
     HeptabaseMCPClient,
     MCPClient,
 )
+from scripts.propose_links.connection_diff import classify_pairs, diff_summary
 from scripts.propose_links.discovery import (
     AmbiguousWhiteboardError,
     WhiteboardNotFoundError,
@@ -232,8 +233,17 @@ def main(
             )
             return EXIT_RUNTIME_ERROR
 
+    # Step 7.5: connection diff (Phase 2.1) — classify each proposed pair
+    # against existing whiteboard connections (NEW / EXISTS / REDUNDANT)
+    classified = classify_pairs(
+        pair_scores, inventory["cards"], inventory["existing_connections"]
+    )
+    summary = diff_summary(classified)
+
     # Step 8: render markdown
-    md = render_dryrun_markdown(inventory, maturity, pair_scores, diagnostics)
+    md = render_dryrun_markdown(
+        inventory, maturity, classified, diagnostics, status_summary=summary
+    )
     try:
         args.output_dir.mkdir(parents=True, exist_ok=True)
         # Same-day re-run suffix per spec §4.1 (item 5 self-review fix)
