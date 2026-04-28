@@ -80,6 +80,79 @@ def _enriched_by_pair_id(
     return {e["pair_id"]: e for e in enriched_pairs if "pair_id" in e}
 
 
+def _render_gap_signals_section(
+    report: dict[str, Any], lines: list[str]
+) -> None:
+    """Append spec §4.1 gap-signal section. No-op for empty/None report."""
+    if not report:
+        return
+    lines.append("## Gap Signals")
+    lines.append("")
+    lines.append(
+        f"_(union graph: {report.get('node_count', 0)} nodes, "
+        f"{report.get('edge_count', 0)} edges)_"
+    )
+    lines.append("")
+
+    weak = report.get("weak_integration") or []
+    if weak:
+        lines.append(
+            f"🔹 **Weak integration ({len(weak)})**: "
+            + ", ".join(f"`{c}`" for c in weak)
+        )
+        lines.append("  → 拉多 1-2 條連結或 rethink 位置")
+        lines.append("")
+
+    hub = report.get("central_hub") or []
+    if hub:
+        lines.append(
+            f"🔹 **Central hub**: " + ", ".join(f"`{c}`" for c in hub)
+        )
+        lines.append("  → 建議放 whiteboard 物理中央")
+        lines.append("")
+
+    fragile = report.get("fragile_bridge") or []
+    if fragile:
+        lines.append(f"🔹 **Fragile bridge ({len(fragile)})**:")
+        for edge in fragile:
+            a, b = edge[0], edge[1]
+            lines.append(f"  - `{a}` ↔ `{b}`")
+        lines.append("  → 加 redundant bridge 提升 community 連通韌性")
+        lines.append("")
+
+    merge = report.get("merge_candidate") or []
+    if merge:
+        lines.append(f"🔹 **Merge candidate ({len(merge)})**:")
+        for m in merge:
+            shared = ", ".join(f"`{n}`" for n in m.get("shared_neighbors", [])) or "—"
+            lines.append(
+                f"  - `{m['from_id']}` ⇄ `{m['to_id']}` "
+                f"(overlap {m['overlap']:.2f}; shared: {shared})"
+            )
+        lines.append("  → 在 HB GUI 考慮合併為一張卡片")
+        lines.append("")
+
+    spag = report.get("spaghetti") or []
+    if spag:
+        lines.append(f"🔹 **Spaghetti warning ({len(spag)})**:")
+        for s in spag:
+            lines.append(
+                f"  - `{s['card_id']}` (degree {s['degree']}, "
+                f"threshold {s['threshold']})"
+            )
+        lines.append("  → 抽象為高維原則另建卡，或拆為 2-3 張子卡")
+        lines.append("")
+
+    if not (weak or hub or fragile or merge or spag):
+        lines.append("_(無偵測到 gap signal — whiteboard 結構健康)_")
+        lines.append("")
+
+    for w in report.get("warnings") or []:
+        lines.append(f"⚠️ {w}")
+    if report.get("warnings"):
+        lines.append("")
+
+
 def render_dryrun_markdown(
     inventory: dict[str, Any],
     maturity: tuple[str, str],
@@ -88,6 +161,7 @@ def render_dryrun_markdown(
     *,
     status_summary: dict[str, int] | None = None,
     enriched_pairs: list[dict[str, Any]] | None = None,
+    gap_signals_report: dict[str, Any] | None = None,
 ) -> str:
     lines: list[str] = []
     name = inventory.get("whiteboard_name", "(unnamed)")
@@ -242,6 +316,9 @@ def render_dryrun_markdown(
             lines.append("</details>")
             lines.append("")
 
+    # Phase 2B: Gap signals (above Diagnostics so they read first)
+    _render_gap_signals_section(gap_signals_report or {}, lines)
+
     # Diagnostics
     lines.append("## Diagnostics")
     lines.append("")
@@ -261,20 +338,29 @@ def render_dryrun_markdown(
             lines.append(f"- `{k}`: `{diagnostics[k]}`")
     lines.append("")
 
-    # Boundary footer (Codex P1.3): swap to Phase 2A wording when Pass 2
-    # has run, so an enriched output doesn't claim "no LLM Pass 2 happened".
-    if has_pass2:
-        lines.append("## Phase 2A boundary (Pass 2 enriched, registry unchanged)")
+    # Boundary footer (Codex P1.3): swap wording when Pass 2 / signals
+    # have run so an enriched output doesn't claim those layers skipped.
+    has_signals = bool(gap_signals_report)
+    if has_pass2 or has_signals:
+        if has_pass2 and has_signals:
+            label = "Phase 2A + 2B"
+            done = "LLM Pass 2 merged into the candidate table; gap signals computed via NetworkX."
+        elif has_pass2:
+            label = "Phase 2A"
+            done = "LLM Pass 2 has been merged into the candidate table above."
+        else:
+            label = "Phase 2B"
+            done = "Gap signals computed via NetworkX from existing connections."
+        lines.append(f"## {label} boundary (registry unchanged)")
         lines.append("")
-        lines.append(
-            "LLM Pass 2 has been merged into the candidate table above. "
-            "The following Phase 2B/2C layers intentionally did NOT happen:"
-        )
+        lines.append(done + " The following layers intentionally did NOT happen:")
         lines.append("")
+        if not has_pass2:
+            lines.append("- ❌ No LLM Pass 2 analysis (Phase 2A)")
+        if not has_signals:
+            lines.append("- ❌ No gap-signal detection (Phase 2B)")
         lines.append("- ❌ No write to `_discovered_links.json` registry (Phase 2C)")
         lines.append("- ❌ No suggestion card created in the Heptabase whiteboard (Phase 2C)")
-        lines.append("- ❌ No clustering / Louvain communities (Phase 2B)")
-        lines.append("- ❌ No gap-signal detection (Phase 2B: weak / hub / fragile bridge / merge / spaghetti)")
         lines.append("")
         lines.append(
             "See `docs/IMPLEMENTATION_PLAN_PHASE_2.md` §3 / §4 for the "

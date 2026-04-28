@@ -738,6 +738,91 @@ def test_with_pass2_malformed_pair_id_skipped(tmp_path: Path):
     assert "malformed pair_id" in err.getvalue()
 
 
+# ---------- Phase 2B: --signals ----------
+
+
+def test_signals_alone_renders_gap_section_without_pass2(tmp_path: Path):
+    """--signals should run without --with-pass2; gap signals computed
+    over existing + proposed graph, merge_candidate naturally empty
+    (no high-confidence labels)."""
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--signals",
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    md = next(tmp_path.glob("*_dryrun.md")).read_text(encoding="utf-8")
+    assert "## Gap Signals" in md
+    # Phase 2B boundary swaps in
+    assert "Phase 2B boundary" in md
+    assert "Phase 1 boundary" not in md
+
+
+def test_signals_plus_pass2_renders_combined_boundary(tmp_path: Path):
+    """When both layers run, boundary footer reads 'Phase 2A + 2B'."""
+    payload = _emit_and_get_first_pair(tmp_path)
+    first = payload["pairs"][0]
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2_envelope(
+        pass2_path,
+        whiteboard_id=payload["whiteboard_id"],
+        analyses=[{
+            "pair_id": first["pair_id"],
+            "from_id": first["from_id"],
+            "to_id": first["to_id"],
+            "relation_type": "shares_principle",
+            "rationale": "ok",
+            "confidence": "high",
+        }],
+    )
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--signals",
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    md = next(tmp_path.glob("*_dryrun.md")).read_text(encoding="utf-8")
+    assert "Phase 2A + 2B boundary" in md
+    assert "## Gap Signals" in md
+
+
+def test_signals_off_by_default(tmp_path: Path):
+    """Without --signals, no Gap Signals section in markdown."""
+    out, err = _streams()
+    rc = main(
+        ["wb-mock-en-zh-001", "--output-dir", str(tmp_path)],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    md = next(tmp_path.glob("*_dryrun.md")).read_text(encoding="utf-8")
+    assert "## Gap Signals" not in md
+
+
+def test_signals_with_emit_pairs_short_circuits_before_signals(tmp_path: Path):
+    """--emit-pairs exits early; --signals on the same call is moot."""
+    pairs_path = tmp_path / "pairs.json"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--emit-pairs", str(pairs_path),
+            "--signals",  # parsed but unreachable
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert pairs_path.exists()
+    # No markdown / no gap signals — short-circuit before render
+    assert list(tmp_path.glob("*_dryrun.md")) == []
+
+
 def test_with_pass2_missing_file_returns_user_error(tmp_path: Path):
     out, err = _streams()
     rc = main(

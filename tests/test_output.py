@@ -492,3 +492,193 @@ def test_render_enriched_partial_coverage_mixes_known_and_missing():
     assert "🟢 high" in md
     assert "(missing)" in md
     assert "🔴 low" in md
+
+
+# ---------- Phase 2B: Gap Signals section ----------
+
+
+def _gap_report(**overrides):
+    """Default empty-but-not-None report; tests override specific keys."""
+    base = {
+        "weak_integration": [],
+        "central_hub": [],
+        "fragile_bridge": [],
+        "merge_candidate": [],
+        "spaghetti": [],
+        "node_count": 0,
+        "edge_count": 0,
+        "warnings": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_render_gap_signals_none_omits_section():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=None,
+    )
+    assert "## Gap Signals" not in md
+
+
+def test_render_gap_signals_empty_report_shows_healthy_message():
+    """Empty-but-not-None report → section present, but '結構健康' line."""
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=_gap_report(node_count=5, edge_count=3),
+    )
+    assert "## Gap Signals" in md
+    assert "5 nodes" in md
+    assert "3 edges" in md
+    assert "結構健康" in md
+    # No section bullets for absent signal types
+    assert "Weak integration" not in md
+    assert "Central hub" not in md
+
+
+def test_render_gap_signals_weak_integration_lists_cards():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=_gap_report(
+            weak_integration=["card-x", "card-y"], node_count=3, edge_count=1,
+        ),
+    )
+    assert "**Weak integration (2)**" in md
+    assert "`card-x`" in md
+    assert "`card-y`" in md
+    assert "rethink 位置" in md
+
+
+def test_render_gap_signals_central_hub_lists_top_n():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=_gap_report(
+            central_hub=["hub-a", "hub-b"], node_count=8, edge_count=12,
+        ),
+    )
+    assert "**Central hub**" in md
+    assert "`hub-a`" in md
+    assert "`hub-b`" in md
+    assert "physical 中央" in md or "物理中央" in md
+
+
+def test_render_gap_signals_fragile_bridge_renders_each_edge():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=_gap_report(
+            fragile_bridge=[("a", "b"), ("c", "d")],
+            node_count=10, edge_count=11,
+        ),
+    )
+    assert "**Fragile bridge (2)**" in md
+    assert "`a` ↔ `b`" in md
+    assert "`c` ↔ `d`" in md
+    assert "redundant bridge" in md
+
+
+def test_render_gap_signals_merge_candidate_includes_overlap_and_shared():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=_gap_report(
+            merge_candidate=[
+                {"from_id": "A", "to_id": "B", "overlap": 0.85,
+                 "shared_neighbors": ["x", "y", "z"]},
+            ],
+            node_count=5, edge_count=8,
+        ),
+    )
+    assert "**Merge candidate (1)**" in md
+    assert "`A` ⇄ `B`" in md
+    assert "0.85" in md
+    assert "`x`" in md and "`y`" in md and "`z`" in md
+    assert "合併為一張卡片" in md
+
+
+def test_render_gap_signals_spaghetti_includes_degree_and_threshold():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=_gap_report(
+            spaghetti=[
+                {"card_id": "hub-of-doom", "degree": 9, "threshold": 6},
+            ],
+            node_count=20, edge_count=18,
+        ),
+    )
+    assert "**Spaghetti warning (1)**" in md
+    assert "`hub-of-doom`" in md
+    assert "degree 9" in md
+    assert "threshold 6" in md
+    assert "高維原則" in md or "拆為" in md
+
+
+def test_render_gap_signals_warnings_surface_with_emoji():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=_gap_report(
+            warnings=["networkx unavailable — degraded"],
+        ),
+    )
+    assert "⚠️ networkx unavailable — degraded" in md
+
+
+def test_render_gap_signals_all_five_types_in_order():
+    """Smoke test for sequencing: weak → hub → fragile → merge → spaghetti."""
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=_gap_report(
+            weak_integration=["w1"],
+            central_hub=["h1"],
+            fragile_bridge=[("f1", "f2")],
+            merge_candidate=[{"from_id": "m1", "to_id": "m2",
+                              "overlap": 0.9, "shared_neighbors": ["s1"]}],
+            spaghetti=[{"card_id": "sp1", "degree": 8, "threshold": 5}],
+            node_count=15, edge_count=22,
+        ),
+    )
+    weak_pos = md.index("Weak integration")
+    hub_pos = md.index("Central hub")
+    fragile_pos = md.index("Fragile bridge")
+    merge_pos = md.index("Merge candidate")
+    spag_pos = md.index("Spaghetti warning")
+    assert weak_pos < hub_pos < fragile_pos < merge_pos < spag_pos
+
+
+def test_render_phase2b_only_boundary_when_signals_without_pass2():
+    """Codex P1.3 follow-through: signals alone → 'Phase 2B boundary'."""
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        gap_signals_report=_gap_report(),
+    )
+    assert "Phase 2B boundary" in md
+    assert "Phase 2A boundary" not in md
+    assert "Phase 1 boundary" not in md
+
+
+def test_render_combined_phase_2a_2b_boundary_when_both():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        enriched_pairs=[
+            _enriched("p-0-1", relation_type="supports", rationale="x",
+                      confidence="high"),
+        ],
+        gap_signals_report=_gap_report(),
+    )
+    assert "Phase 2A + 2B boundary" in md
+    # Combined footer should NOT list pass2/signals as deferred
+    deferred_block = md.split("intentionally did NOT happen")[1]
+    assert "No LLM Pass 2" not in deferred_block
+    assert "No gap-signal" not in deferred_block
+    # But registry / suggestion card still listed as deferred
+    assert "_discovered_links.json" in deferred_block
+    assert "suggestion card" in deferred_block

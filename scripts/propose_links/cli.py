@@ -32,12 +32,53 @@ from scripts.propose_links.discovery import (
 from scripts.propose_links.inventory import build_inventory
 from scripts.propose_links.maturity_detect import detect_maturity
 from scripts.propose_links.output import dryrun_filename, render_dryrun_markdown
-from scripts.propose_links.pass2_merge import emit_pair_contexts, merge_pass2
+from scripts.propose_links.gap_signals import compute_gap_signals
+from scripts.propose_links.pass2_merge import (
+    emit_pair_contexts,
+    merge_pass2,
+    pair_id as _pair_id,
+)
 from scripts.propose_links.tfidf_prefilter import (
     assert_cjk_gate,
     build_tfidf_prefilter,
 )
 from scripts.registry.atomic_write import atomic_write_json
+
+
+def _build_proposed_links(
+    classified: list[tuple[int, int, float, str]],
+    cards: list[dict[str, Any]],
+    enriched: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Resolve NEW classified pairs → list of {from_id, to_id, confidence}.
+
+    `gap_signals.compute_gap_signals` only needs endpoints + confidence;
+    if Pass 2 hasn't run, every NEW pair gets confidence=None (so
+    merge_candidate is naturally empty).
+    """
+    enriched_by_pid = {
+        e["pair_id"]: e for e in (enriched or []) if "pair_id" in e
+    }
+    out: list[dict[str, Any]] = []
+    for tup in classified:
+        if len(tup) != 4:
+            continue
+        i, j, _, status = tup
+        if status != "NEW":
+            continue
+        if i >= len(cards) or j >= len(cards):
+            continue
+        a = cards[i].get("id")
+        b = cards[j].get("id")
+        if not (a and b):
+            continue
+        e = enriched_by_pid.get(_pair_id(i, j), {})
+        out.append({
+            "from_id": a,
+            "to_id": b,
+            "confidence": e.get("confidence"),
+        })
+    return out
 
 EXIT_OK = 0
 EXIT_USER_ERROR = 2
@@ -138,6 +179,18 @@ def build_parser() -> argparse.ArgumentParser:
             "confidence, evidence_kind}, ...]}). Merges into the dry-run "
             "markdown so each NEW pair carries relation_type + rationale + "
             "confidence."
+        ),
+    )
+    # Phase 2B: gap signal detection
+    p.add_argument(
+        "--signals",
+        action="store_true",
+        help=(
+            "[Phase 2B] Compute and render 5-class gap signals (weak / "
+            "hub / fragile bridge / merge candidate / spaghetti) on the "
+            "union graph of existing + proposed links. Safe to combine "
+            "with --with-pass2 (merge_candidate uses confidence='high' "
+            "from Pass 2)."
         ),
     )
     # Phase 2+ flags surface a friendly "not yet implemented" message
@@ -348,6 +401,20 @@ def main(
         for w in warnings:
             print(f"[with-pass2 warn] {w}", file=err)
 
+    # Phase 2B: gap signals (optional, computed before markdown render)
+    gap_report = None
+    if args.signals:
+        proposed_links = _build_proposed_links(
+            classified, inventory["cards"], enriched
+        )
+        gap_report = compute_gap_signals(
+            cards=inventory["cards"],
+            proposed_links=proposed_links,
+            existing_connections=inventory["existing_connections"],
+        )
+        for w in gap_report.get("warnings") or []:
+            print(f"[signals warn] {w}", file=err)
+
     # Step 8: render markdown
     md = render_dryrun_markdown(
         inventory,
@@ -356,6 +423,7 @@ def main(
         diagnostics,
         status_summary=summary,
         enriched_pairs=enriched,
+        gap_signals_report=gap_report,
     )
     try:
         args.output_dir.mkdir(parents=True, exist_ok=True)
