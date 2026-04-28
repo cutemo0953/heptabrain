@@ -336,3 +336,159 @@ def test_render_status_summary_omits_zero_buckets():
     assert "1 NEW" in md
     assert "EXISTS" not in md.split("Pair diff")[1].split("\n")[0]
     assert "REDUNDANT" not in md.split("Pair diff")[1].split("\n")[0]
+
+
+# ---------- Phase 2A: enriched_pairs (LLM Pass 2) ----------
+
+
+def _enriched(pair_id, *, relation_type=None, rationale=None, confidence=None,
+              needs_review=False, pass2_skipped=False, pass2_missing=False):
+    return {
+        "pair_id": pair_id,
+        "relation_type": relation_type,
+        "rationale": rationale,
+        "confidence": confidence,
+        "evidence_kind": [],
+        "needs_review": needs_review,
+        "pass2_skipped": pass2_skipped,
+        "pass2_missing": pass2_missing,
+    }
+
+
+def test_render_with_enriched_pairs_adds_pass2_columns():
+    classified = [(0, 1, 0.5, "NEW")]
+    enriched = [
+        _enriched("p-0-1", relation_type="shares_principle",
+                  rationale="Both invoke recursion across boundaries.",
+                  confidence="high")
+    ]
+    md = render_dryrun_markdown(
+        _sample_inventory(),
+        ("forming", "heuristic"),
+        classified,
+        _sample_diag(),
+        status_summary={"NEW": 1, "EXISTS": 0, "REDUNDANT": 0},
+        enriched_pairs=enriched,
+    )
+    assert "Pass 2 enriched" in md
+    assert "| Rank | Card A | Card B | Score | Status | Relation | Conf | Rationale |" in md
+    assert "`shares_principle`" in md
+    assert "🟢 high" in md
+    assert "Both invoke recursion" in md
+
+
+def test_render_enriched_needs_review_flags_warning():
+    classified = [(0, 1, 0.5, "NEW")]
+    enriched = [
+        _enriched("p-0-1", relation_type="related_to", rationale="weak",
+                  confidence="low", needs_review=True)
+    ]
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        classified, _sample_diag(),
+        enriched_pairs=enriched,
+    )
+    assert "related_to ⚠️" in md
+    assert "🔴 low" in md
+
+
+def test_render_enriched_skipped_pair_shows_skipped_label():
+    classified = [(0, 1, 0.5, "EXISTS")]
+    enriched = [_enriched("p-0-1", pass2_skipped=True)]
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        classified, _sample_diag(),
+        enriched_pairs=enriched,
+    )
+    assert "(skipped)" in md
+    # confidence column shows em-dash for unanalyzed pair
+    assert "| `(skipped)` | — |" in md
+
+
+def test_render_enriched_missing_pair_shows_missing_label():
+    classified = [(0, 1, 0.5, "NEW")]
+    enriched = [_enriched("p-0-1", pass2_missing=True, confidence="low")]
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        classified, _sample_diag(),
+        enriched_pairs=enriched,
+    )
+    assert "(missing)" in md
+    assert "🔴 low" in md
+
+
+def test_render_enriched_truncates_long_rationale():
+    classified = [(0, 1, 0.5, "NEW")]
+    long_rationale = "x" * 300
+    enriched = [_enriched("p-0-1", relation_type="supports",
+                          rationale=long_rationale, confidence="med")]
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        classified, _sample_diag(),
+        enriched_pairs=enriched,
+    )
+    # 160-char cap with ellipsis
+    assert "x" * 157 + "…" in md
+    assert "x" * 300 not in md
+
+
+def test_render_enriched_escapes_pipe_and_collapses_newlines():
+    classified = [(0, 1, 0.5, "NEW")]
+    enriched = [_enriched("p-0-1", relation_type="supports",
+                          rationale="line1\nline2 | with pipe",
+                          confidence="med")]
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        classified, _sample_diag(),
+        enriched_pairs=enriched,
+    )
+    assert "line1 line2 \\| with pipe" in md
+    # No raw newline mid-row
+    assert "line1\nline2" not in md
+
+
+def test_render_no_enriched_pairs_keeps_legacy_table():
+    """Default enriched_pairs=None preserves Phase 2.1 4-column table."""
+    classified = [(0, 1, 0.5, "NEW")]
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        classified, _sample_diag(),
+        status_summary={"NEW": 1, "EXISTS": 0, "REDUNDANT": 0},
+    )
+    assert "Pass 2 enriched" not in md
+    assert "Relation | Conf | Rationale" not in md
+
+
+def test_render_empty_enriched_list_treated_as_no_pass2():
+    classified = [(0, 1, 0.5, "NEW")]
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        classified, _sample_diag(),
+        enriched_pairs=[],
+    )
+    assert "Pass 2 enriched" not in md
+    assert "Relation" not in md
+
+
+def test_render_enriched_partial_coverage_mixes_known_and_missing():
+    """Realistic scenario: 2 NEW pairs, only 1 has an analysis.
+    The one without analysis gets pass2_missing=True from merge_pass2,
+    so renderer must show both rows (one analyzed, one '(missing)').
+    """
+    inventory = _sample_inventory()
+    classified = [(0, 1, 0.5, "NEW"), (0, 2, 0.3, "NEW")]
+    enriched = [
+        _enriched("p-0-1", relation_type="supports", rationale="r1",
+                  confidence="high"),
+        _enriched("p-0-2", pass2_missing=True, confidence="low"),
+    ]
+    md = render_dryrun_markdown(
+        inventory, ("forming", "heuristic"),
+        classified, _sample_diag(),
+        status_summary={"NEW": 2, "EXISTS": 0, "REDUNDANT": 0},
+        enriched_pairs=enriched,
+    )
+    assert "`supports`" in md
+    assert "🟢 high" in md
+    assert "(missing)" in md
+    assert "🔴 low" in md

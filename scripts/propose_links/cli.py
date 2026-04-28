@@ -1,14 +1,19 @@
-"""Phase 1 CLI entry — `python -m scripts.propose_links.cli <whiteboard>`.
+"""Phase 1 + Phase 2 CLI entry — `python -m scripts.propose_links.cli <whiteboard>`.
 
-Hard-coded to dry-run only. No registry write, no suggestion-card
-creation, no LLM Pass 2. Phase 2+ flags (--mda / --suggestion-card /
---audit-only) are intentionally NOT implemented; passing them surfaces
-a clear "not in Phase 1 scope" message instead of silently doing
-nothing.
+Phase 1 (dry-run): inventory + TF-IDF prefilter + connection diff →
+markdown only.
+
+Phase 2A: --emit-pairs writes pair contexts for LLM Pass 2; --with-pass2
+reads LLM results and merges into the markdown.
+
+Remaining Phase 2+ flags (--mda / --audit-only / --max-links) and the
+journal flag are still trapped with a friendly "not in this scope"
+message.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -27,10 +32,12 @@ from scripts.propose_links.discovery import (
 from scripts.propose_links.inventory import build_inventory
 from scripts.propose_links.maturity_detect import detect_maturity
 from scripts.propose_links.output import dryrun_filename, render_dryrun_markdown
+from scripts.propose_links.pass2_merge import emit_pair_contexts, merge_pass2
 from scripts.propose_links.tfidf_prefilter import (
     assert_cjk_gate,
     build_tfidf_prefilter,
 )
+from scripts.registry.atomic_write import atomic_write_json
 
 EXIT_OK = 0
 EXIT_USER_ERROR = 2
@@ -108,6 +115,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-cjk-gate",
         action="store_true",
         help="Skip the CJK score-spread gate (escape hatch; default off)",
+    )
+    # Phase 2A: emit pair contexts for LLM Pass 2
+    p.add_argument(
+        "--emit-pairs",
+        type=Path,
+        default=None,
+        help=(
+            "[Phase 2A] Write NEW pair contexts as JSON to this path and exit "
+            "(skips markdown render). Used by .claude/commands/propose-links.md "
+            "to hand off pairs to Claude native LLM Pass 2."
+        ),
+    )
+    # Phase 2A: merge LLM Pass 2 results back into the markdown
+    p.add_argument(
+        "--with-pass2",
+        type=Path,
+        default=None,
+        help=(
+            "[Phase 2A] Path to a Pass 2 results JSON "
+            "({\"analyses\": [{pair_id, relation_type, rationale, "
+            "confidence, evidence_kind}, ...]}). Merges into the dry-run "
+            "markdown so each NEW pair carries relation_type + rationale + "
+            "confidence."
+        ),
     )
     # Phase 2+ flags surface a friendly "not yet implemented" message
     # (item 8 self-review fix — was mismatch between docstring and CLI surface)
@@ -240,9 +271,62 @@ def main(
     )
     summary = diff_summary(classified)
 
+    # Phase 2A: --emit-pairs short-circuits before markdown render. Skill
+    # (.claude/commands/propose-links.md) calls CLI twice; the first call
+    # emits pair contexts for Claude's native LLM Pass 2.
+    if args.emit_pairs is not None:
+        contexts = emit_pair_contexts(classified, inventory["cards"])
+        payload = {
+            "whiteboard_id": inventory["whiteboard_id"],
+            "whiteboard_name": inventory["whiteboard_name"],
+            "pairs": contexts,
+        }
+        try:
+            atomic_write_json(args.emit_pairs, payload)
+        except OSError as e:
+            print(
+                f"error: cannot write pair contexts to {args.emit_pairs}: {e}",
+                file=err,
+            )
+            return EXIT_RUNTIME_ERROR
+        print(
+            f"[emit-pairs] wrote {len(contexts)} NEW pair contexts to "
+            f"{args.emit_pairs}",
+            file=err,
+        )
+        return EXIT_OK
+
+    # Phase 2A: --with-pass2 merges LLM analyses into the classified pairs
+    # before markdown render. Errors here are user errors (bad path / shape);
+    # render still runs without enrichment if the user wanted dry-run.
+    enriched: list[dict[str, Any]] | None = None
+    if args.with_pass2 is not None:
+        try:
+            with args.with_pass2.open("r", encoding="utf-8") as f:
+                pass2_data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"error: cannot read --with-pass2 file: {e}", file=err)
+            return EXIT_USER_ERROR
+        analyses = pass2_data.get("analyses") if isinstance(pass2_data, dict) else None
+        if not isinstance(analyses, list):
+            print(
+                "error: --with-pass2 file must be {\"analyses\": [...]}; "
+                f"got {type(pass2_data).__name__}",
+                file=err,
+            )
+            return EXIT_USER_ERROR
+        enriched, warnings = merge_pass2(classified, analyses)
+        for w in warnings:
+            print(f"[with-pass2 warn] {w}", file=err)
+
     # Step 8: render markdown
     md = render_dryrun_markdown(
-        inventory, maturity, classified, diagnostics, status_summary=summary
+        inventory,
+        maturity,
+        classified,
+        diagnostics,
+        status_summary=summary,
+        enriched_pairs=enriched,
     )
     try:
         args.output_dir.mkdir(parents=True, exist_ok=True)

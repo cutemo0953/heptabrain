@@ -376,3 +376,235 @@ def test_phase2_flag_value_form_also_intercepted(tmp_path: Path, tok, capsys):
     captured = capsys.readouterr()
     assert "not in Phase 1 scope" in captured.err
     assert tok.split("=")[0] in captured.err
+
+
+# ---------- Phase 2A: --emit-pairs ----------
+
+
+def test_emit_pairs_writes_only_new_pairs(tmp_path: Path):
+    out, err = _streams()
+    pairs_path = tmp_path / "pairs.json"
+    rc = main(
+        [
+            "wb-mock-en-zh-001",
+            "--output-dir",
+            str(tmp_path),
+            "--emit-pairs",
+            str(pairs_path),
+        ],
+        client=_client(),
+        stdout=out,
+        stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert pairs_path.exists()
+
+    import json as _json
+    payload = _json.loads(pairs_path.read_text(encoding="utf-8"))
+    assert payload["whiteboard_id"] == "wb-mock-en-zh-001"
+    assert "pairs" in payload
+    # Every emitted pair has the required schema for LLM Pass 2
+    for p in payload["pairs"]:
+        assert set(p.keys()) >= {
+            "pair_id", "score", "from_id", "to_id",
+            "from_title", "to_title", "from_tags", "to_tags",
+            "from_excerpt", "to_excerpt",
+        }
+        assert p["pair_id"].startswith("p-")
+    # No dryrun.md written when --emit-pairs is used (short-circuit)
+    assert list(tmp_path.glob("*_dryrun.md")) == []
+    assert "[emit-pairs] wrote" in err.getvalue()
+
+
+def test_emit_pairs_excludes_existing_connections(tmp_path: Path):
+    """The fixture has 3 existing connections; --emit-pairs only includes
+    pairs that are NEW (not already linked)."""
+    out, err = _streams()
+    pairs_path = tmp_path / "pairs.json"
+    rc = main(
+        [
+            "wb-mock-en-zh-001",
+            "--output-dir",
+            str(tmp_path),
+            "--emit-pairs",
+            str(pairs_path),
+        ],
+        client=_client(),
+        stdout=out,
+        stderr=err,
+    )
+    assert rc == EXIT_OK
+    import json as _json
+    payload = _json.loads(pairs_path.read_text(encoding="utf-8"))
+    # Make sure pairs (card-en-1, card-en-2) which the fixture marks as
+    # connected do NOT appear (or, if they do, only because they're not
+    # actually existing — verify by checking from/to ids never match an
+    # existing connection in the fixture).
+    existing_pair_set = {
+        frozenset({"card-en-1", "card-en-2"}),
+        frozenset({"card-zh-1", "card-zh-2"}),
+        frozenset({"card-en-3", "card-en-4"}),
+    }
+    for p in payload["pairs"]:
+        ids = frozenset({p["from_id"], p["to_id"]})
+        assert ids not in existing_pair_set, (
+            f"pair {ids} should be EXISTS, not in NEW emit"
+        )
+
+
+def test_emit_pairs_unwritable_path_returns_runtime_error(tmp_path: Path):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir")
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001",
+            "--output-dir",
+            str(tmp_path),
+            "--emit-pairs",
+            str(blocker / "sub" / "pairs.json"),
+        ],
+        client=_client(),
+        stdout=out,
+        stderr=err,
+    )
+    assert rc == EXIT_RUNTIME_ERROR
+    assert "cannot write pair contexts" in err.getvalue()
+
+
+# ---------- Phase 2A: --with-pass2 ----------
+
+
+def _write_pass2(path: Path, analyses: list) -> None:
+    import json as _json
+    path.write_text(
+        _json.dumps({"analyses": analyses}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def test_with_pass2_renders_enriched_columns(tmp_path: Path):
+    # First emit pairs to learn the actual pair_ids the prefilter chose
+    pairs_path = tmp_path / "pairs.json"
+    main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--emit-pairs", str(pairs_path),
+        ],
+        client=_client(), stdout=io.StringIO(), stderr=io.StringIO(),
+    )
+    import json as _json
+    payload = _json.loads(pairs_path.read_text(encoding="utf-8"))
+    assert payload["pairs"]
+    first_pid = payload["pairs"][0]["pair_id"]
+
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2(pass2_path, [{
+        "pair_id": first_pid,
+        "relation_type": "shares_principle",
+        "rationale": "Shared closure pattern.",
+        "confidence": "high",
+        "evidence_kind": ["text_overlap"],
+    }])
+
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001",
+            "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    md_files = [p for p in tmp_path.glob("*_dryrun.md")]
+    assert md_files
+    md_text = md_files[-1].read_text(encoding="utf-8")
+    assert "Pass 2 enriched" in md_text
+    assert "Relation | Conf | Rationale" in md_text
+    assert "shares_principle" in md_text
+    assert "Shared closure pattern." in md_text
+
+
+def test_with_pass2_missing_file_returns_user_error(tmp_path: Path):
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(tmp_path / "nope.json"),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_USER_ERROR
+    assert "cannot read --with-pass2 file" in err.getvalue()
+
+
+def test_with_pass2_malformed_json_returns_user_error(tmp_path: Path):
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(bad),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_USER_ERROR
+    assert "cannot read --with-pass2 file" in err.getvalue()
+
+
+def test_with_pass2_wrong_shape_returns_user_error(tmp_path: Path):
+    bad = tmp_path / "shape.json"
+    bad.write_text('["not a dict"]', encoding="utf-8")
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(bad),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_USER_ERROR
+    assert "must be" in err.getvalue()
+
+
+def test_with_pass2_partial_coverage_emits_missing_warnings(tmp_path: Path):
+    # No analyses at all → every NEW pair gets pass2_missing
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2(pass2_path, [])
+
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    md_files = list(tmp_path.glob("*_dryrun.md"))
+    assert md_files
+    md_text = md_files[-1].read_text(encoding="utf-8")
+    assert "(missing)" in md_text
+
+
+def test_with_pass2_unknown_pair_id_surfaces_warning(tmp_path: Path):
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2(pass2_path, [{
+        "pair_id": "p-99-100",
+        "relation_type": "supports",
+        "rationale": "ghost",
+        "confidence": "high",
+    }])
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert "[with-pass2 warn]" in err.getvalue()
+    assert "p-99-100" in err.getvalue()

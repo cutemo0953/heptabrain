@@ -1,10 +1,13 @@
-"""Phase 1 dry-run markdown rendering.
+"""Phase 1 dry-run markdown rendering (with Phase 2A enrichment).
 
-Per DEV_SPEC_HEPTABRAIN_PROPOSE_LINKS.md §4. Phase 1 limitation:
-inventory + maturity + TF-IDF top-N candidate pairs only. NO LLM Pass 2
-analysis, NO registry write, NO suggestion-card creation. The footer
-makes those exclusions explicit so a future reader cannot mistake the
-output for a Phase 2+ artifact.
+Per DEV_SPEC_HEPTABRAIN_PROPOSE_LINKS.md §4. Phase 1 base: inventory +
+maturity + TF-IDF top-N candidate pairs. Phase 2A adds optional
+`enriched_pairs` parameter which carries LLM Pass 2 results
+(relation_type / rationale / confidence) — when present, the candidate
+table is replaced by the spec §4.1 attention-protected hierarchy
+(⭐ Top 5 / 📌 Next 10 / 📎 Appendix). The Phase 1-boundary footer is
+suppressed when Pass 2 is present so readers don't see contradictory
+"no LLM Pass 2 happened" messaging on enriched output.
 """
 from __future__ import annotations
 
@@ -66,6 +69,17 @@ def dryrun_filename(
     return f"{base}_r{next_n}_dryrun.md"
 
 
+_CONFIDENCE_ICON = {"high": "🟢", "med": "🟡", "low": "🔴"}
+
+
+def _enriched_by_pair_id(
+    enriched_pairs: list[dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    if not enriched_pairs:
+        return {}
+    return {e["pair_id"]: e for e in enriched_pairs if "pair_id" in e}
+
+
 def render_dryrun_markdown(
     inventory: dict[str, Any],
     maturity: tuple[str, str],
@@ -73,6 +87,7 @@ def render_dryrun_markdown(
     diagnostics: dict[str, Any],
     *,
     status_summary: dict[str, int] | None = None,
+    enriched_pairs: list[dict[str, Any]] | None = None,
 ) -> str:
     lines: list[str] = []
     name = inventory.get("whiteboard_name", "(unnamed)")
@@ -85,8 +100,11 @@ def render_dryrun_markdown(
 
     # Phase 2.1: detect classified-pair shape (4-tuple with status)
     has_status = bool(pair_scores) and len(pair_scores[0]) >= 4
+    enriched_lookup = _enriched_by_pair_id(enriched_pairs)
+    has_pass2 = bool(enriched_lookup)
 
-    lines.append(f"# Propose-Links Dry-Run — {name}")
+    title_suffix = " (Pass 2 enriched)" if has_pass2 else ""
+    lines.append(f"# Propose-Links Dry-Run — {name}{title_suffix}")
     lines.append("")
     lines.append(f"- **Whiteboard ID:** `{wb_id}`")
     lines.append(f"- **Card count (analyzable):** {len(cards)}")
@@ -141,8 +159,26 @@ def render_dryrun_markdown(
         next10 = pair_scores[5:15]
         appendix = pair_scores[15:]
 
+        def _pid(i: int, j: int) -> str:
+            a, b = (i, j) if i < j else (j, i)
+            return f"p-{a}-{b}"
+
+        def _format_rationale(rat: str | None) -> str:
+            if not rat:
+                return ""
+            # Inline-table-safe: collapse newlines + escape pipes
+            cleaned = rat.replace("\n", " ").replace("|", "\\|").strip()
+            if len(cleaned) > 160:
+                cleaned = cleaned[:157] + "…"
+            return cleaned
+
         def _table_lines(section_pairs: list[tuple], start_rank: int) -> list[str]:
-            if has_status:
+            if has_pass2:
+                out = [
+                    "| Rank | Card A | Card B | Score | Status | Relation | Conf | Rationale |",
+                    "|------|--------|--------|-------|--------|----------|------|-----------|",
+                ]
+            elif has_status:
                 out = [
                     "| Rank | Card A | Card B | Score | Status |",
                     "|------|--------|--------|-------|--------|",
@@ -159,7 +195,24 @@ def render_dryrun_markdown(
                 b = cards[j]
                 a_label = f"`{a.get('id', '?')}` — {a.get('title') or '(untitled)'}"
                 b_label = f"`{b.get('id', '?')}` — {b.get('title') or '(untitled)'}"
-                if has_status:
+                if has_pass2:
+                    status = pair[3] if has_status else "?"
+                    e = enriched_lookup.get(_pid(i, j), {})
+                    rel = e.get("relation_type") or "—"
+                    if e.get("needs_review"):
+                        rel = f"{rel} ⚠️"
+                    if e.get("pass2_skipped"):
+                        rel = "(skipped)"
+                    elif e.get("pass2_missing"):
+                        rel = "(missing)"
+                    conf = e.get("confidence") or "—"
+                    conf_disp = f"{_CONFIDENCE_ICON.get(conf, '·')} {conf}" if conf != "—" else "—"
+                    rationale = _format_rationale(e.get("rationale"))
+                    out.append(
+                        f"| {rank} | {a_label} | {b_label} | {score:.4f} | `{status}` | "
+                        f"`{rel}` | {conf_disp} | {rationale} |"
+                    )
+                elif has_status:
                     status = pair[3]
                     out.append(
                         f"| {rank} | {a_label} | {b_label} | {score:.4f} | `{status}` |"
