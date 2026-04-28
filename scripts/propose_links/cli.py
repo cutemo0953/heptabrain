@@ -307,15 +307,44 @@ def main(
         except (OSError, json.JSONDecodeError) as e:
             print(f"error: cannot read --with-pass2 file: {e}", file=err)
             return EXIT_USER_ERROR
-        analyses = pass2_data.get("analyses") if isinstance(pass2_data, dict) else None
-        if not isinstance(analyses, list):
+        if not isinstance(pass2_data, dict):
             print(
-                "error: --with-pass2 file must be {\"analyses\": [...]}; "
-                f"got {type(pass2_data).__name__}",
+                "error: --with-pass2 file must be a JSON object "
+                f"({{whiteboard_id, analyses}}); got {type(pass2_data).__name__}",
                 file=err,
             )
             return EXIT_USER_ERROR
-        enriched, warnings = merge_pass2(classified, analyses)
+        # Codex P1.1 — whiteboard_id cross-check is the outer-envelope
+        # snapshot-drift guard. If absent, warn (back-compat); if present
+        # and mismatched, fail closed.
+        envelope_wb = pass2_data.get("whiteboard_id")
+        if envelope_wb is None:
+            print(
+                "[with-pass2 warn] envelope has no whiteboard_id; "
+                "skipping snapshot-drift outer guard (per-pair from_id/to_id "
+                "check still runs)",
+                file=err,
+            )
+        elif envelope_wb != inventory["whiteboard_id"]:
+            print(
+                "error: --with-pass2 envelope whiteboard_id "
+                f"{envelope_wb!r} does not match inventory whiteboard_id "
+                f"{inventory['whiteboard_id']!r}; refusing to merge "
+                "across snapshots (Codex P1.1 snapshot-drift guard)",
+                file=err,
+            )
+            return EXIT_USER_ERROR
+        analyses = pass2_data.get("analyses")
+        if not isinstance(analyses, list):
+            print(
+                "error: --with-pass2 file must be {\"analyses\": [...]}; "
+                f"got analyses={type(analyses).__name__}",
+                file=err,
+            )
+            return EXIT_USER_ERROR
+        enriched, warnings = merge_pass2(
+            classified, analyses, cards=inventory["cards"]
+        )
         for w in warnings:
             print(f"[with-pass2 warn] {w}", file=err)
 

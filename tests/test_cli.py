@@ -483,8 +483,7 @@ def _write_pass2(path: Path, analyses: list) -> None:
     )
 
 
-def test_with_pass2_renders_enriched_columns(tmp_path: Path):
-    # First emit pairs to learn the actual pair_ids the prefilter chose
+def _emit_and_get_first_pair(tmp_path: Path) -> dict:
     pairs_path = tmp_path / "pairs.json"
     main(
         [
@@ -496,16 +495,35 @@ def test_with_pass2_renders_enriched_columns(tmp_path: Path):
     import json as _json
     payload = _json.loads(pairs_path.read_text(encoding="utf-8"))
     assert payload["pairs"]
-    first_pid = payload["pairs"][0]["pair_id"]
+    return payload
 
+
+def _write_pass2_envelope(path: Path, *, whiteboard_id: str | None,
+                          analyses: list) -> None:
+    import json as _json
+    body: dict = {"analyses": analyses}
+    if whiteboard_id is not None:
+        body["whiteboard_id"] = whiteboard_id
+    path.write_text(_json.dumps(body, ensure_ascii=False), encoding="utf-8")
+
+
+def test_with_pass2_renders_enriched_columns(tmp_path: Path):
+    payload = _emit_and_get_first_pair(tmp_path)
+    first = payload["pairs"][0]
     pass2_path = tmp_path / "pass2.json"
-    _write_pass2(pass2_path, [{
-        "pair_id": first_pid,
-        "relation_type": "shares_principle",
-        "rationale": "Shared closure pattern.",
-        "confidence": "high",
-        "evidence_kind": ["text_overlap"],
-    }])
+    _write_pass2_envelope(
+        pass2_path,
+        whiteboard_id=payload["whiteboard_id"],
+        analyses=[{
+            "pair_id": first["pair_id"],
+            "from_id": first["from_id"],
+            "to_id": first["to_id"],
+            "relation_type": "shares_principle",
+            "rationale": "Shared closure pattern.",
+            "confidence": "high",
+            "evidence_kind": ["text_overlap"],
+        }],
+    )
 
     out, err = _streams()
     rc = main(
@@ -524,6 +542,200 @@ def test_with_pass2_renders_enriched_columns(tmp_path: Path):
     assert "Relation | Conf | Rationale" in md_text
     assert "shares_principle" in md_text
     assert "Shared closure pattern." in md_text
+    # P1.3 — Phase 2A boundary footer replaces Phase 1 boundary
+    assert "Phase 2A boundary" in md_text
+    assert "Phase 1 boundary" not in md_text
+
+
+def test_with_pass2_envelope_whiteboard_mismatch_returns_user_error(tmp_path: Path):
+    """Codex P1.1: outer-envelope whiteboard_id cross-check."""
+    payload = _emit_and_get_first_pair(tmp_path)
+    first = payload["pairs"][0]
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2_envelope(
+        pass2_path,
+        whiteboard_id="wb-DIFFERENT-snapshot",
+        analyses=[{
+            "pair_id": first["pair_id"],
+            "from_id": first["from_id"],
+            "to_id": first["to_id"],
+            "relation_type": "supports",
+            "rationale": "x",
+            "confidence": "high",
+        }],
+    )
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_USER_ERROR
+    assert "envelope whiteboard_id" in err.getvalue()
+    assert "snapshot-drift" in err.getvalue()
+
+
+def test_with_pass2_envelope_missing_whiteboard_id_warns_but_proceeds(tmp_path: Path):
+    """Back-compat: no envelope whiteboard_id → warning, not failure."""
+    payload = _emit_and_get_first_pair(tmp_path)
+    first = payload["pairs"][0]
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2_envelope(
+        pass2_path,
+        whiteboard_id=None,
+        analyses=[{
+            "pair_id": first["pair_id"],
+            "from_id": first["from_id"],
+            "to_id": first["to_id"],
+            "relation_type": "supports",
+            "rationale": "ok",
+            "confidence": "high",
+        }],
+    )
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert "envelope has no whiteboard_id" in err.getvalue()
+
+
+def test_with_pass2_endpoint_mismatch_treated_as_missing(tmp_path: Path):
+    """Codex P1.1: per-pair from_id/to_id cross-check.
+
+    Even if pair_id matches, swapping in wrong endpoints must downgrade
+    the pair to (missing) rather than silently mis-attaching the analysis.
+    """
+    payload = _emit_and_get_first_pair(tmp_path)
+    first = payload["pairs"][0]
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2_envelope(
+        pass2_path,
+        whiteboard_id=payload["whiteboard_id"],
+        analyses=[{
+            "pair_id": first["pair_id"],
+            # WRONG endpoints
+            "from_id": "card-WRONG-1",
+            "to_id": "card-WRONG-2",
+            "relation_type": "supports",
+            "rationale": "should not appear",
+            "confidence": "high",
+        }],
+    )
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert "snapshot-drift" in err.getvalue()
+    md_text = next(tmp_path.glob("*_dryrun.md")).read_text(encoding="utf-8")
+    assert "should not appear" not in md_text
+    assert "(missing)" in md_text
+
+
+def test_with_pass2_per_pair_missing_endpoints_treated_as_missing(tmp_path: Path):
+    """Codex P1.2 + P1.1: an analysis without from_id/to_id is rejected
+    (snapshot-drift defense; we cannot validate the endpoints)."""
+    payload = _emit_and_get_first_pair(tmp_path)
+    first = payload["pairs"][0]
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2_envelope(
+        pass2_path,
+        whiteboard_id=payload["whiteboard_id"],
+        analyses=[{
+            "pair_id": first["pair_id"],
+            # no from_id / to_id
+            "relation_type": "supports",
+            "rationale": "x",
+            "confidence": "high",
+        }],
+    )
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert "is missing from_id/to_id" in err.getvalue()
+    md_text = next(tmp_path.glob("*_dryrun.md")).read_text(encoding="utf-8")
+    assert "(missing)" in md_text
+
+
+def test_with_pass2_non_dict_item_warns_and_skips(tmp_path: Path):
+    """Codex P1.2: non-dict analysis items must not crash."""
+    payload = _emit_and_get_first_pair(tmp_path)
+    first = payload["pairs"][0]
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2_envelope(
+        pass2_path,
+        whiteboard_id=payload["whiteboard_id"],
+        analyses=[
+            "i am a string, not an analysis",
+            42,
+            None,
+            {
+                "pair_id": first["pair_id"],
+                "from_id": first["from_id"],
+                "to_id": first["to_id"],
+                "relation_type": "supports",
+                "rationale": "valid",
+                "confidence": "high",
+            },
+        ],
+    )
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert "is not a dict" in err.getvalue()
+    md_text = next(tmp_path.glob("*_dryrun.md")).read_text(encoding="utf-8")
+    assert "valid" in md_text  # the one good entry still flows through
+
+
+def test_with_pass2_malformed_pair_id_skipped(tmp_path: Path):
+    """Codex P1.2: pair_id must match ^p-\\d+-\\d+$."""
+    payload = _emit_and_get_first_pair(tmp_path)
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2_envelope(
+        pass2_path,
+        whiteboard_id=payload["whiteboard_id"],
+        analyses=[{
+            "pair_id": "p-zero-one",  # malformed
+            "from_id": "x",
+            "to_id": "y",
+            "relation_type": "supports",
+            "rationale": "ghost",
+            "confidence": "high",
+        }],
+    )
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert "malformed pair_id" in err.getvalue()
 
 
 def test_with_pass2_missing_file_returns_user_error(tmp_path: Path):

@@ -261,19 +261,38 @@ def render_dryrun_markdown(
             lines.append(f"- `{k}`: `{diagnostics[k]}`")
     lines.append("")
 
-    # Phase 1 boundary
-    lines.append("## Phase 1 boundary (do not mistake this for Phase 2+ output)")
-    lines.append("")
-    lines.append("This is a **Phase 1 dry-run**. The following intentionally did NOT happen:")
-    lines.append("")
-    lines.append("- ❌ No LLM Pass 2 analysis (no rationale, no relation_type, no confidence)")
-    lines.append("- ❌ No write to `_discovered_links.json` registry")
-    lines.append("- ❌ No suggestion card created in the Heptabase whiteboard")
-    lines.append("- ❌ No clustering / Louvain communities")
-    lines.append("- ❌ No gap-signal detection (weak / hub / fragile bridge / merge / spaghetti)")
-    lines.append("")
-    lines.append(
-        "Phase 2+ enables those layers. See "
-        "`docs/IMPLEMENTATION_PLAN_PHASE_0_1.md` §7 for deferred scope."
-    )
+    # Boundary footer (Codex P1.3): swap to Phase 2A wording when Pass 2
+    # has run, so an enriched output doesn't claim "no LLM Pass 2 happened".
+    if has_pass2:
+        lines.append("## Phase 2A boundary (Pass 2 enriched, registry unchanged)")
+        lines.append("")
+        lines.append(
+            "LLM Pass 2 has been merged into the candidate table above. "
+            "The following Phase 2B/2C layers intentionally did NOT happen:"
+        )
+        lines.append("")
+        lines.append("- ❌ No write to `_discovered_links.json` registry (Phase 2C)")
+        lines.append("- ❌ No suggestion card created in the Heptabase whiteboard (Phase 2C)")
+        lines.append("- ❌ No clustering / Louvain communities (Phase 2B)")
+        lines.append("- ❌ No gap-signal detection (Phase 2B: weak / hub / fragile bridge / merge / spaghetti)")
+        lines.append("")
+        lines.append(
+            "See `docs/IMPLEMENTATION_PLAN_PHASE_2.md` §3 / §4 for the "
+            "remaining layers."
+        )
+    else:
+        lines.append("## Phase 1 boundary (do not mistake this for Phase 2+ output)")
+        lines.append("")
+        lines.append("This is a **Phase 1 dry-run**. The following intentionally did NOT happen:")
+        lines.append("")
+        lines.append("- ❌ No LLM Pass 2 analysis (no rationale, no relation_type, no confidence)")
+        lines.append("- ❌ No write to `_discovered_links.json` registry")
+        lines.append("- ❌ No suggestion card created in the Heptabase whiteboard")
+        lines.append("- ❌ No clustering / Louvain communities")
+        lines.append("- ❌ No gap-signal detection (weak / hub / fragile bridge / merge / spaghetti)")
+        lines.append("")
+        lines.append(
+            "Phase 2+ enables those layers. See "
+            "`docs/IMPLEMENTATION_PLAN_PHASE_0_1.md` §7 for deferred scope."
+        )
     return "\n".join(lines) + "\n"

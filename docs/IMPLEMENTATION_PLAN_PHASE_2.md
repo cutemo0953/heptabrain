@@ -293,13 +293,15 @@ def render_suggestion_card(
 
 完整 orchestration（mirrors zettel-walk pattern）。流程：
 
+**Snapshot-drift discipline (Codex 2A review P1.1 + P2.1):** 每次 run 都用 unique run_id（如 `{YYYYMMDDTHHMMSS}-{wb-slug}`）建私有 tmp dir `/tmp/heptabrain-propose-links/{run_id}/`，所有 artefact (snapshot / pairs / pass2 / suggestion) 寫進該 dir。Skill 必須對兩次 CLI call 都傳同一份 `--fixture <snapshot>`，避免 inventory 順序在期間漂移。Pass 2 envelope 一定帶 `whiteboard_id` 給 CLI 做 outer-guard cross-check；每筆 analysis 一定回 `from_id`/`to_id` 給 merge_pass2 做 per-pair guard。
+
 1. **Discover**：呼叫 `mcp__heptabase-mcp__search_whiteboards` 解析 user 輸入
-2. **Snapshot**：`mcp__heptabase-mcp__get_whiteboard_with_objects` → 寫 `/tmp/wb_snapshot_{ts}.json` 為 fixture
-3. **Phase 1 + 2.1 dry-run**：`python -m scripts.propose_links.cli <wb_id> --fixture <snapshot> --emit-pairs /tmp/pairs.json`
-4. **Pass 2 native LLM**：Claude 對 `/tmp/pairs.json` 每 pair 跑 spec §2.3 Step 4 五項分析（principles / anchor / relation_type / rationale / confidence），寫 `/tmp/pass2.json`
-5. **Merge + signals + write**：`python -m scripts.propose_links.cli <wb_id> --fixture <snapshot> --with-pass2 /tmp/pass2.json --signals --discovered-json memory/_discovered_links.json --suggestion-card /tmp/suggestion.md`
-6. **(opt) Suggestion card create**：if user 同意 → `mcp__heptabase-mcp__save_to_note_card` with body from `/tmp/suggestion.md`
-7. **Cleanup**：rm `/tmp/wb_snapshot_*` `/tmp/pairs.json` `/tmp/pass2.json`（保留 suggestion.md as audit trail）
+2. **Snapshot**：`mcp__heptabase-mcp__get_whiteboard_with_objects` → 寫 `<run_dir>/snapshot.json` 為 fixture
+3. **Phase 1 + 2.1 dry-run**：`python -m scripts.propose_links.cli <wb_id> --fixture <run_dir>/snapshot.json --emit-pairs <run_dir>/pairs.json`
+4. **Pass 2 native LLM**：Claude 對 `pairs.json` 每 pair 跑 spec §2.3 Step 4 五項分析（principles / anchor / relation_type / rationale / confidence），寫 `<run_dir>/pass2.json`，envelope 必含 `whiteboard_id`，每筆 analysis 必回 `pair_id` + `from_id` + `to_id`
+5. **Merge + signals + write**：`python -m scripts.propose_links.cli <wb_id> --fixture <run_dir>/snapshot.json --with-pass2 <run_dir>/pass2.json --signals --discovered-json memory/_discovered_links.json --suggestion-card <run_dir>/suggestion.md`
+6. **(opt) Suggestion card create**：if user 同意 → `mcp__heptabase-mcp__save_to_note_card` with body from `<run_dir>/suggestion.md`
+7. **Cleanup**：移除 `<run_dir>/snapshot.json` `pairs.json` `pass2.json`（保留 suggestion.md as audit trail）
 
 **互動點：**
 - Step 2 後：confirm whiteboard match

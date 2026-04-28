@@ -23,10 +23,21 @@ class LLMClient(Protocol):
 class FixtureLLMClient:
     """Loads pre-recorded analyses keyed by pair_id from a fixture JSON.
 
-    Fixture shape:
-        {"analyses": [{"pair_id": "p-0", "relation_type": "shares_principle",
-                       "rationale": "...", "confidence": "high",
-                       "evidence_kind": ["text_overlap"]}, ...]}
+    Fixture shape (matches the --with-pass2 envelope so the same file
+    can power both unit tests and the live skill):
+        {"whiteboard_id": "wb-...",
+         "analyses": [
+            {"pair_id": "p-0-1", "from_id": "card-x", "to_id": "card-y",
+             "relation_type": "shares_principle",
+             "rationale": "...", "confidence": "high",
+             "evidence_kind": ["text_overlap"]},
+            ...
+         ]}
+
+    `pair_id` follows the ``p-{i}-{j}`` (i<j) scheme from
+    propose_links.pass2_merge.pair_id; `from_id`/`to_id` are required so
+    the merger can detect snapshot drift between --emit-pairs and
+    --with-pass2 invocations (Codex P1.1 guard).
     """
 
     def __init__(self, fixture_path: Path | str):

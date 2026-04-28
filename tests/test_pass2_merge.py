@@ -299,3 +299,188 @@ def test_emit_custom_excerpt_chars():
     out = emit_pair_contexts(classified, cards, excerpt_chars=100)
     assert len(out[0]["from_excerpt"]) == 100
     assert out[0]["to_excerpt"] == "y" * 50
+
+
+# ---------- Codex P1.1 — snapshot-drift cross-check via cards ----------
+
+
+def _cards3():
+    return [
+        {"id": "card-a", "title": "A"},
+        {"id": "card-b", "title": "B"},
+        {"id": "card-c", "title": "C"},
+    ]
+
+
+def test_endpoint_match_passes_through_when_cards_provided():
+    classified = [(0, 1, 0.5, "NEW")]
+    results = [{
+        "pair_id": "p-0-1",
+        "from_id": "card-a",
+        "to_id": "card-b",
+        "relation_type": "supports",
+        "rationale": "ok",
+        "confidence": "high",
+    }]
+    enriched, warnings = merge_pass2(classified, results, cards=_cards3())
+    assert warnings == []
+    assert enriched[0]["relation_type"] == "supports"
+    assert enriched[0]["pass2_missing"] is False
+
+
+def test_endpoint_match_accepts_reversed_order():
+    """from_id/to_id are compared as an unordered pair (LLM may emit
+    either direction since TF-IDF Pass 1 is symmetric)."""
+    classified = [(0, 1, 0.5, "NEW")]
+    results = [{
+        "pair_id": "p-0-1",
+        "from_id": "card-b",  # reversed
+        "to_id": "card-a",
+        "relation_type": "supports",
+        "rationale": "ok",
+        "confidence": "high",
+    }]
+    enriched, warnings = merge_pass2(classified, results, cards=_cards3())
+    assert warnings == []
+    assert enriched[0]["pass2_missing"] is False
+
+
+def test_endpoint_mismatch_marks_pass2_missing_and_warns():
+    classified = [(0, 1, 0.5, "NEW")]
+    results = [{
+        "pair_id": "p-0-1",
+        "from_id": "card-a",
+        "to_id": "card-WRONG",  # mismatch
+        "relation_type": "supports",
+        "rationale": "ghost",
+        "confidence": "high",
+    }]
+    enriched, warnings = merge_pass2(classified, results, cards=_cards3())
+    assert enriched[0]["pass2_missing"] is True
+    assert enriched[0]["confidence"] == "low"
+    assert enriched[0]["relation_type"] is None
+    assert any("snapshot-drift" in w for w in warnings)
+
+
+def test_missing_endpoints_in_result_marks_missing_when_cards_provided():
+    classified = [(0, 1, 0.5, "NEW")]
+    results = [{
+        "pair_id": "p-0-1",
+        # no from_id / to_id
+        "relation_type": "supports",
+        "rationale": "x",
+        "confidence": "high",
+    }]
+    enriched, warnings = merge_pass2(classified, results, cards=_cards3())
+    assert enriched[0]["pass2_missing"] is True
+    assert any("missing from_id/to_id" in w for w in warnings)
+
+
+def test_no_endpoint_check_when_cards_is_none_legacy():
+    """Backward-compat: cards=None preserves Phase 2A unit-test path."""
+    classified = [(0, 1, 0.5, "NEW")]
+    results = [{
+        "pair_id": "p-0-1",
+        "relation_type": "supports",
+        "rationale": "x",
+        "confidence": "high",
+    }]
+    enriched, warnings = merge_pass2(classified, results)  # cards default None
+    assert enriched[0]["pass2_missing"] is False
+    assert enriched[0]["relation_type"] == "supports"
+
+
+def test_card_index_out_of_range_marks_missing_not_crash():
+    """Defense: classified pair index past end of cards list shouldn't
+    crash; treat as snapshot drift."""
+    classified = [(0, 5, 0.5, "NEW")]  # j=5 but only 3 cards
+    results = [{
+        "pair_id": "p-0-5",
+        "from_id": "card-a",
+        "to_id": "card-x",
+        "relation_type": "supports",
+        "rationale": "x",
+        "confidence": "high",
+    }]
+    enriched, warnings = merge_pass2(classified, results, cards=_cards3())
+    assert enriched[0]["pass2_missing"] is True
+    assert any("snapshot-drift" in w for w in warnings)
+
+
+# ---------- Codex P1.2 — per-analysis structural validation ----------
+
+
+def test_non_dict_analysis_warns_and_skips():
+    classified = [(0, 1, 0.5, "NEW")]
+    results = ["not a dict", 42, None]
+    enriched, warnings = merge_pass2(classified, results, cards=_cards3())
+    assert enriched[0]["pass2_missing"] is True
+    assert sum(1 for w in warnings if "is not a dict" in w) == 3
+
+
+def test_malformed_pair_id_warns_and_skips():
+    classified = [(0, 1, 0.5, "NEW")]
+    results = [
+        {"pair_id": "p-zero-one", "from_id": "x", "to_id": "y",
+         "relation_type": "supports", "rationale": "x", "confidence": "high"},
+        {"pair_id": "0-1", "from_id": "x", "to_id": "y",
+         "relation_type": "supports", "rationale": "x", "confidence": "high"},
+        {"pair_id": "p-0-", "from_id": "x", "to_id": "y",
+         "relation_type": "supports", "rationale": "x", "confidence": "high"},
+    ]
+    enriched, warnings = merge_pass2(classified, results, cards=_cards3())
+    assert enriched[0]["pass2_missing"] is True
+    assert sum(1 for w in warnings if "malformed pair_id" in w) == 3
+
+
+def test_non_string_rationale_coerced_to_empty():
+    classified = [(0, 1, 0.5, "NEW")]
+    results = [{
+        "pair_id": "p-0-1",
+        "from_id": "card-a", "to_id": "card-b",
+        "relation_type": "supports",
+        "rationale": {"nested": "object"},  # must not crash render later
+        "confidence": "high",
+    }]
+    enriched, warnings = merge_pass2(classified, results, cards=_cards3())
+    assert enriched[0]["rationale"] == ""
+    assert enriched[0]["relation_type"] == "supports"
+
+
+def test_oversized_rationale_truncated():
+    classified = [(0, 1, 0.5, "NEW")]
+    results = [{
+        "pair_id": "p-0-1",
+        "from_id": "card-a", "to_id": "card-b",
+        "relation_type": "supports",
+        "rationale": "x" * 5000,
+        "confidence": "high",
+    }]
+    enriched, _ = merge_pass2(classified, results, cards=_cards3())
+    # input-side cap (render layer caps further at 160 for the table)
+    assert len(enriched[0]["rationale"]) == 1000
+
+
+# ---------- Codex P2.4 — only NEW eligible for enrichment ----------
+
+
+def test_unknown_status_is_skipped_not_enriched():
+    """Forward-compat: future statuses (e.g. CONFLICT) flow through
+    as pass2_skipped so a pre-existing analysis can't accidentally
+    enrich them. Only status=='NEW' is a Pass-2 target."""
+    classified = [
+        (0, 1, 0.5, "NEW"),
+        (1, 2, 0.4, "CONFLICT"),  # hypothetical Phase 2.2+ status
+    ]
+    results = [
+        {"pair_id": "p-0-1", "from_id": "card-a", "to_id": "card-b",
+         "relation_type": "supports", "rationale": "ok", "confidence": "high"},
+        {"pair_id": "p-1-2", "from_id": "card-b", "to_id": "card-c",
+         "relation_type": "contradicts", "rationale": "no", "confidence": "high"},
+    ]
+    enriched, _ = merge_pass2(classified, results, cards=_cards3())
+    assert enriched[0]["pass2_skipped"] is False
+    assert enriched[0]["relation_type"] == "supports"
+    assert enriched[1]["pass2_skipped"] is True
+    assert enriched[1]["relation_type"] is None  # not enriched even though
+                                                  # an analysis was provided

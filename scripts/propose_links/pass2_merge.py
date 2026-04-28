@@ -6,24 +6,38 @@ IMPLEMENTATION_PLAN_PHASE_2.md §2A.3.
 Input:
 - classified pairs from `connection_diff.classify_pairs` —
   `(i, j, score, status)` tuples
-- pass2 results — list of dicts keyed by pair_id
+- pass2 results — list of dicts keyed by pair_id (and additionally
+  required fields from_id + to_id, used to detect snapshot drift)
+- cards — inventory list, used to cross-check from_id/to_id against
+  the actual pair endpoints (Codex review P1.1: index-only matching
+  silently mis-attaches analyses if inventory order changes between
+  --emit-pairs and --with-pass2 invocations)
 
 Output:
 - list of EnrichedPair dicts merging both, with `pair_id` recoverable
-  from `(i, j)` via the same scheme used by `emit_pairs`.
+  from `(i, j)` via the same scheme used by `emit_pair_contexts`.
 
-Skip rule: EXISTS / REDUNDANT pairs are not sent to the LLM (no need to
-analyze a connection that already exists), so they pass through with
-`relation_type=None` and a `pass2_skipped` flag. NEW pairs without a
-matching analysis get `pass2_missing=True` and confidence is forced to
-'low' so the writer/output stages can downgrade them.
+Skip rule (Codex P2.4 — forward-compatible whitelist): only status=='NEW'
+pairs are eligible for enrichment. EXISTS / REDUNDANT / future CONFLICT
+all flow through with `pass2_skipped=True`.
 
-Validation: relation_type must be one of the 11 frozen relations
-(constants.relation_types) OR the fallback `related_to`. Anything else
-falls back to `related_to` + `needs_review=True` (spec §2.2).
+Pairs without a matching analysis get `pass2_missing=True` and confidence
+is forced to 'low' so the writer/output stages can downgrade them.
+
+Per-analysis validation (Codex P1.2):
+- non-dict items → warn + ignore
+- pair_id must match ``^p-\\d+-\\d+$`` → warn + ignore
+- from_id / to_id required; if absent or not matching the classified
+  pair's actual endpoints → warn + treat as missing (Codex P1.1)
+- relation_type: 11 frozen relations or `related_to` (else fallback +
+  needs_review)
+- rationale: string only (else coerced to "")
+- confidence: 'high' / 'med' / 'low' (else 'low')
+- evidence_kind: list of strings (else [])
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from scripts.constants.relation_types import (
@@ -32,6 +46,8 @@ from scripts.constants.relation_types import (
 )
 
 VALID_CONFIDENCE = frozenset({"high", "med", "low"})
+_PAIR_ID_RE = re.compile(r"^p-\d+-\d+$")
+_RATIONALE_MAX_CHARS = 1000  # render layer truncates further; hard cap on input
 
 
 def pair_id(i: int, j: int) -> str:
@@ -64,11 +80,48 @@ def _normalize_confidence(c: Any) -> str:
     return "low"
 
 
+def _normalize_rationale(rat: Any) -> str:
+    if not isinstance(rat, str):
+        return ""
+    rat = rat.strip()
+    if len(rat) > _RATIONALE_MAX_CHARS:
+        rat = rat[:_RATIONALE_MAX_CHARS]
+    return rat
+
+
+def _validate_analysis(
+    r: Any, warnings: list[str]
+) -> dict[str, Any] | None:
+    """Per-analysis structural validation (Codex P1.2).
+
+    Returns the dict (unchanged) on pass; appends to ``warnings`` and
+    returns None on any structural failure. Field-level coercion happens
+    later in the merge loop; this gate is for "is this even an analysis
+    record" checks.
+    """
+    if not isinstance(r, dict):
+        warnings.append(f"pass2 result is not a dict (got {type(r).__name__}): skipped")
+        return None
+    pid = r.get("pair_id")
+    if not isinstance(pid, str):
+        warnings.append(f"pass2 result missing pair_id: {r!r}")
+        return None
+    if not _PAIR_ID_RE.match(pid):
+        warnings.append(
+            f"pass2 result has malformed pair_id {pid!r} "
+            f"(expected p-<i>-<j>): skipped"
+        )
+        return None
+    return r
+
+
 def merge_pass2(
     classified_pairs: list[tuple[int, int, float, str]],
     pass2_results: list[dict[str, Any]],
+    cards: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Match classified pairs against pass2 analyses by pair_id.
+    """Match classified pairs against pass2 analyses by pair_id +
+    cross-check against from_id/to_id.
 
     Returns (enriched_pairs, warnings).
     Warning shape: human-readable strings; caller can log/print them.
@@ -76,18 +129,25 @@ def merge_pass2(
     Duplicate pair_ids in pass2_results: keep the LAST occurrence and emit
     a warning. (LLM should not produce duplicates; if it does, last-wins
     matches str.dict semantics.)
+
+    Endpoint cross-check (Codex P1.1): when ``cards`` is provided, each
+    matched analysis must carry ``from_id`` and ``to_id`` AND those must
+    equal ``cards[i]['id']`` / ``cards[j]['id']`` as an unordered pair.
+    Mismatch → analysis is rejected (pair flagged ``pass2_missing``) and
+    a warning surfaced; this is the snapshot-drift guard. When ``cards``
+    is None (legacy / pure unit-test mode) the cross-check is skipped.
     """
     warnings: list[str] = []
 
     by_id: dict[str, dict[str, Any]] = {}
     for r in pass2_results:
-        pid = r.get("pair_id")
-        if not isinstance(pid, str):
-            warnings.append(f"pass2 result missing pair_id: {r!r}")
+        validated = _validate_analysis(r, warnings)
+        if validated is None:
             continue
+        pid = validated["pair_id"]  # already known str + matches regex
         if pid in by_id:
             warnings.append(f"duplicate pair_id in pass2 results: {pid} (last wins)")
-        by_id[pid] = r
+        by_id[pid] = validated
 
     seen_pair_ids: set[str] = set()
     enriched: list[dict[str, Any]] = []
@@ -113,7 +173,9 @@ def merge_pass2(
             "pass2_missing": False,
         }
 
-        if status in ("EXISTS", "REDUNDANT"):
+        # Codex P2.4 — only NEW pairs are eligible for Pass 2 enrichment.
+        # EXISTS / REDUNDANT / future CONFLICT all flow through skipped.
+        if status != "NEW":
             base["pass2_skipped"] = True
             enriched.append(base)
             continue
@@ -125,10 +187,51 @@ def merge_pass2(
             enriched.append(base)
             continue
 
+        # Codex P1.1 endpoint cross-check (only when cards provided).
+        # Result MUST carry from_id + to_id; we compare as an unordered
+        # pair against cards[i].id / cards[j].id. Mismatch ⇒ reject.
+        if cards is not None:
+            r_from = result.get("from_id")
+            r_to = result.get("to_id")
+            if not isinstance(r_from, str) or not isinstance(r_to, str):
+                warnings.append(
+                    f"pass2 result for {pid} is missing from_id/to_id "
+                    f"(snapshot-drift guard): treated as missing"
+                )
+                base["pass2_missing"] = True
+                base["confidence"] = "low"
+                enriched.append(base)
+                continue
+            try:
+                expected = frozenset({cards[i]["id"], cards[j]["id"]})
+            except (IndexError, KeyError):
+                # Index out of range or card lacks 'id': treat as snapshot
+                # drift; the classified pair points at something that no
+                # longer exists in the inventory we were handed.
+                warnings.append(
+                    f"pass2 result for {pid}: cards[{i}] or cards[{j}] "
+                    f"has no 'id' (snapshot-drift): treated as missing"
+                )
+                base["pass2_missing"] = True
+                base["confidence"] = "low"
+                enriched.append(base)
+                continue
+            actual = frozenset({r_from, r_to})
+            if actual != expected:
+                warnings.append(
+                    f"pass2 result for {pid} endpoints {sorted(actual)} "
+                    f"don't match inventory pair {sorted(expected)} "
+                    f"(snapshot-drift): treated as missing"
+                )
+                base["pass2_missing"] = True
+                base["confidence"] = "low"
+                enriched.append(base)
+                continue
+
         rel, needs_review = _normalize_relation(result.get("relation_type"))
         base["relation_type"] = rel
         base["needs_review"] = needs_review
-        base["rationale"] = result.get("rationale") or ""
+        base["rationale"] = _normalize_rationale(result.get("rationale"))
         base["confidence"] = _normalize_confidence(result.get("confidence"))
 
         ek = result.get("evidence_kind", [])
