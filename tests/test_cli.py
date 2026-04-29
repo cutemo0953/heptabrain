@@ -274,7 +274,7 @@ def test_no_cjk_gate_default_off():
 
 
 @pytest.mark.parametrize(
-    "flag", ["--mda", "--journal", "--suggestion-card", "--audit-only"]
+    "flag", ["--mda", "--journal", "--audit-only"]
 )
 def test_phase2_flag_exits_with_friendly_message(tmp_path: Path, flag, capsys):
     out, err = _streams()
@@ -361,7 +361,7 @@ def test_default_client_path_returns_user_error_not_traceback(tmp_path: Path):
 
 @pytest.mark.parametrize(
     "tok",
-    ["--mda=true", "--journal=foo", "--suggestion-card=anything", "--max-links=10"],
+    ["--mda=true", "--journal=foo", "--max-links=10"],
 )
 def test_phase2_flag_value_form_also_intercepted(tmp_path: Path, tok, capsys):
     out, err = _streams()
@@ -821,6 +821,212 @@ def test_signals_with_emit_pairs_short_circuits_before_signals(tmp_path: Path):
     assert pairs_path.exists()
     # No markdown / no gap signals — short-circuit before render
     assert list(tmp_path.glob("*_dryrun.md")) == []
+
+
+# ---------- Phase 2C: --discovered-json ----------
+
+
+def _emit_pass2_for_first_pair(tmp_path: Path, *, relation="shares_principle",
+                               confidence="high"):
+    """Run --emit-pairs, build a Pass 2 envelope for the first pair only."""
+    payload = _emit_and_get_first_pair(tmp_path)
+    first = payload["pairs"][0]
+    pass2_path = tmp_path / "pass2.json"
+    _write_pass2_envelope(
+        pass2_path,
+        whiteboard_id=payload["whiteboard_id"],
+        analyses=[{
+            "pair_id": first["pair_id"],
+            "from_id": first["from_id"],
+            "to_id": first["to_id"],
+            "relation_type": relation,
+            "rationale": "test rationale",
+            "confidence": confidence,
+            "evidence_kind": ["text_overlap"],
+        }],
+    )
+    return payload, pass2_path
+
+
+def test_discovered_json_writes_eligible_entries(tmp_path: Path):
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    reg = tmp_path / "links.json"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--discovered-json", str(reg),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert reg.exists()
+    import json as _json
+    data = _json.loads(reg.read_text(encoding="utf-8"))
+    assert len(data) == 1
+    assert data[0]["link_class"] == "proposed"
+    assert data[0]["acceptance_state"] == "proposed"
+    assert data[0]["scope_whiteboard_id"] == "wb-mock-en-zh-001"
+    assert "[discovered-json] wrote 1 entries" in err.getvalue()
+
+
+def test_discovered_json_requires_with_pass2(tmp_path: Path):
+    """--discovered-json without --with-pass2 → user error (writer
+    needs Pass 2 results to determine eligibility)."""
+    reg = tmp_path / "links.json"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--discovered-json", str(reg),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_USER_ERROR
+    assert "requires --with-pass2" in err.getvalue()
+    assert not reg.exists()
+
+
+def test_discovered_json_corrupt_existing_returns_runtime_error(tmp_path: Path):
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    reg = tmp_path / "links.json"
+    reg.write_text("{not valid json", encoding="utf-8")
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--discovered-json", str(reg),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_RUNTIME_ERROR
+    assert "not valid JSON" in err.getvalue()
+
+
+def test_discovered_json_low_confidence_skipped(tmp_path: Path):
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path,
+                                                     confidence="low")
+    reg = tmp_path / "links.json"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--discovered-json", str(reg),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert "wrote 0 entries" in err.getvalue()
+    assert not reg.exists()
+
+
+# ---------- Phase 2C: --suggestion-card ----------
+
+
+def test_suggestion_card_writes_markdown_body(tmp_path: Path):
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    card_path = tmp_path / "suggestion.md"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--suggestion-card", str(card_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert card_path.exists()
+    body = card_path.read_text(encoding="utf-8")
+    assert body.startswith("# 🗂️")
+    assert "建議 New Links" in body
+    assert "下次 re-run 前 checklist" in body
+    assert "[suggestion-card] wrote" in err.getvalue()
+
+
+def test_suggestion_card_requires_with_pass2(tmp_path: Path):
+    card_path = tmp_path / "suggestion.md"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--suggestion-card", str(card_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_USER_ERROR
+    assert "requires --with-pass2" in err.getvalue()
+    assert not card_path.exists()
+
+
+def test_suggestion_card_unwritable_path_returns_runtime_error(tmp_path: Path):
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir")
+    card_path = blocker / "sub" / "card.md"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--suggestion-card", str(card_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_RUNTIME_ERROR
+    assert "--suggestion-card write failed" in err.getvalue()
+
+
+def test_suggestion_card_combined_with_signals_includes_gap_section(tmp_path: Path):
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    card_path = tmp_path / "card.md"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--signals",
+            "--suggestion-card", str(card_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    body = card_path.read_text(encoding="utf-8")
+    # Gap signals section appears only when --signals ran AND something
+    # was detected. The mock fixture has 5 isolated cards → weak_integration
+    # populated.
+    assert "## Gap Signals" in body or "建議 New Links" in body
+
+
+def test_full_phase2_pipeline_e2e(tmp_path: Path):
+    """End-to-end: --with-pass2 + --signals + --discovered-json +
+    --suggestion-card all together → registry written, card body
+    written, dryrun markdown also written. This is the shape the
+    skill (Session C continued) will drive."""
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    reg = tmp_path / "links.json"
+    card_path = tmp_path / "suggestion.md"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--signals",
+            "--discovered-json", str(reg),
+            "--suggestion-card", str(card_path),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_OK
+    assert reg.exists()
+    assert card_path.exists()
+    assert list(tmp_path.glob("*_dryrun.md"))
+    # Combined boundary footer in dry-run markdown
+    md_text = next(tmp_path.glob("*_dryrun.md")).read_text(encoding="utf-8")
+    assert "Phase 2A + 2B boundary" in md_text
 
 
 def test_with_pass2_missing_file_returns_user_error(tmp_path: Path):

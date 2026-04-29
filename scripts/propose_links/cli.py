@@ -32,12 +32,16 @@ from scripts.propose_links.discovery import (
 from scripts.propose_links.inventory import build_inventory
 from scripts.propose_links.maturity_detect import detect_maturity
 from scripts.propose_links.output import dryrun_filename, render_dryrun_markdown
+from scripts.propose_links.discovered_links_writer import (
+    append_discovered_links,
+)
 from scripts.propose_links.gap_signals import compute_gap_signals
 from scripts.propose_links.pass2_merge import (
     emit_pair_contexts,
     merge_pass2,
     pair_id as _pair_id,
 )
+from scripts.propose_links.suggestion_card import render_suggestion_card
 from scripts.propose_links.tfidf_prefilter import (
     assert_cjk_gate,
     build_tfidf_prefilter,
@@ -95,7 +99,6 @@ EXIT_RUNTIME_ERROR = 1
 PHASE_2_PLUS_FLAGS = {
     "--mda": "MDA 4D sketch (spec 04 §2.4)",
     "--journal": "append summary to today's Heptabase Journal (spec 04 §4.3)",
-    "--suggestion-card": "create 🗂️ suggestion card in whiteboard (spec 04 §4.5)",
     "--audit-only": "audit-only mode for canonical maturity (spec 04 §3)",
     "--max-links": "limit proposed link count (spec 04 §3)",
 }
@@ -198,6 +201,28 @@ def build_parser() -> argparse.ArgumentParser:
             "union graph of existing + proposed links. Safe to combine "
             "with --with-pass2 (merge_candidate uses confidence='high' "
             "from Pass 2)."
+        ),
+    )
+    # Phase 2C: persist registry entries
+    p.add_argument(
+        "--discovered-json",
+        type=Path,
+        default=None,
+        help=(
+            "[Phase 2C] Append eligible enriched pairs (NEW + Pass 2 "
+            "+ confidence in {high, med}) as Schema v2 entries to this "
+            "registry file. Atomic append-only. Cross-run dedup deferred "
+            "to Phase 3."
+        ),
+    )
+    p.add_argument(
+        "--suggestion-card",
+        type=Path,
+        default=None,
+        help=(
+            "[Phase 2C] Render the 🗂️ suggestion card markdown body to "
+            "this path. The skill (.claude/commands/propose-links.md) "
+            "is responsible for actually creating the HB card via MCP."
         ),
     )
     # Phase 2+ flags surface a friendly "not yet implemented" message
@@ -421,6 +446,69 @@ def main(
         )
         for w in gap_report.get("warnings") or []:
             print(f"[signals warn] {w}", file=err)
+
+    # Phase 2C: registry write (requires Pass 2 — eligible filter
+    # excludes pairs without analysis)
+    if args.discovered_json is not None:
+        if enriched is None:
+            print(
+                "error: --discovered-json requires --with-pass2 "
+                "(writer needs Pass 2 results to determine eligibility)",
+                file=err,
+            )
+            return EXIT_USER_ERROR
+        try:
+            report = append_discovered_links(
+                args.discovered_json,
+                enriched,
+                cards=inventory["cards"],
+                whiteboard_id=inventory["whiteboard_id"],
+            )
+        except (ValueError, OSError) as e:
+            print(f"error: --discovered-json failed: {e}", file=err)
+            return EXIT_RUNTIME_ERROR
+        print(
+            f"[discovered-json] wrote {report['written']} entries "
+            f"(skipped {report['skipped']}, invalid {len(report['invalid'])}, "
+            f"registry now {report['registry_size']} entries)",
+            file=err,
+        )
+        for pair_id_, errors in report["invalid"]:
+            for e_msg in errors:
+                print(f"[discovered-json invalid] {pair_id_}: {e_msg}",
+                      file=err)
+
+    # Phase 2C: suggestion card markdown body (skill creates the HB card)
+    if args.suggestion_card is not None:
+        if enriched is None:
+            print(
+                "error: --suggestion-card requires --with-pass2 "
+                "(card body lists Pass 2 enriched links)",
+                file=err,
+            )
+            return EXIT_USER_ERROR
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        card_body = render_suggestion_card(
+            whiteboard_name=inventory["whiteboard_name"],
+            whiteboard_id=inventory["whiteboard_id"],
+            enriched_pairs=enriched,
+            cards=inventory["cards"],
+            gap_signals_report=gap_report,
+            timestamp=now.isoformat(),
+            today=now.strftime("%Y-%m-%d"),
+        )
+        try:
+            args.suggestion_card.parent.mkdir(parents=True, exist_ok=True)
+            args.suggestion_card.write_text(card_body, encoding="utf-8")
+        except OSError as e:
+            print(f"error: --suggestion-card write failed: {e}", file=err)
+            return EXIT_RUNTIME_ERROR
+        print(
+            f"[suggestion-card] wrote {len(card_body)} bytes to "
+            f"{args.suggestion_card}",
+            file=err,
+        )
 
     # Step 8: render markdown
     md = render_dryrun_markdown(
