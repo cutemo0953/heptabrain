@@ -382,17 +382,26 @@ NetworkX 在 Phase 0 plan 已預留宣告 — 此處正式啟用。**不新增**
 
 ## 8. Acceptance 總表
 
-| 項目 | Pass 標準 |
-|------|----------|
-| Phase 2A unit tests | pass2_merge / llm_client 全 green |
-| Phase 2A integration | `--emit-pairs` + `--with-pass2` round-trip 正確 |
-| Phase 2B unit tests | gap_signals 6 cases green |
-| Phase 2B real-graph test | 12-card fixture 出 5 類 signal 預期值 |
-| Phase 2C unit tests | discovered_links_writer / suggestion_card 全 green |
-| Phase 2C atomic write | mock crash 不破壞既有 registry |
-| Skill markdown | 對真 whiteboard 跑完不爆 + suggestion card 在 HB 可見 |
-| Coverage | 新增 module > 80% |
-| Codex review | P0 = 0；P1/P2 全修完才 push |
+> **四件套規則**（per `feedback_new_module_deliverables_checklist.md`，2026-04-29 retrofit）：
+> 每個 phase 的 deliverable 都是 4 件，不能只看 module 本身：
+> 1. **Module** — pure function / class
+> 2. **Module unit tests** — 覆蓋每個分支
+> 3. **CLI integration tests**（若 module 透過 CLI flag 暴露）— 覆蓋 happy + 每個 error path
+> 4. **Skill markdown**（若 module 是 skill orchestration 一部分）— `.claude/commands/<skill>.md`
+>
+> 第 3/4 項若不適用，也要在表格列出 **N/A** 字樣，不能省略整列。
+>
+> **教訓溯源**：Phase 2 期間連續四次自審抓到「寫完 module + module test 但漏寫 CLI integration test 或 skill markdown」同一盲點。本表格作為 Phase 3+ 的範本。
+
+### Per-phase × per-deliverable acceptance
+
+| Phase / Deliverable | Module + Unit tests | CLI integration tests | Skill markdown |
+|--------------------|---------------------|----------------------|---------------|
+| **2A** Pass 2 LLM merge | `pass2_merge.py` + `llm_client.py` 全 green，coverage > 80% | `--emit-pairs` round-trip + `--with-pass2` happy/missing-file/bad-JSON/wrong-shape/whiteboard-mismatch/endpoint-mismatch/non-dict-item/malformed-pair-id 全綠 | **N/A**（推到 2C） |
+| **2B** Gap signals | `gap_signals.py` 全 green，含 NetworkX-unavailable monkeypatch + K5+K5+bridges + spaghetti N/3 vs floor + merge endpoint-exclusion | `--signals` alone / + with-pass2 / + emit-pairs / off-by-default | **N/A**（推到 2C） |
+| **2C** Persist + card | `discovered_links_writer.py` + `suggestion_card.py` 全 green，含 atomic-write crash 不破壞既有 registry + 每筆 entry pass `validate_entry` | `--discovered-json` happy/requires-pass2/corrupt-existing/low-conf-skipped + `--suggestion-card` happy/requires-pass2/unwritable + 路徑衝突 preflight + write-order failure-isolation | `.claude/commands/propose-links.md` 7 步 + snapshot-drift discipline + 11-relation table + exit-code recovery |
+| **End-to-end** real-HB validation | n/a | n/a | 對 1 個真 whiteboard 跑完整 skill flow，suggestion card 在 HB 可見 |
+| **Reviewer gates** | Codex review P0 = 0；P1/P2 全修完才 push；自審 0 FAIL 才宣稱 deliver |
 
 ---
 

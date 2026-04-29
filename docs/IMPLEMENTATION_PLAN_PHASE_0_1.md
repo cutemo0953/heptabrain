@@ -428,15 +428,31 @@ dev = ["pytest>=8.0", "pytest-cov>=4.1"]
 
 ## 8. Acceptance 總表
 
-| 項目 | Pass 標準 |
-|------|----------|
-| Phase 0 tests | 全部 pytest green，coverage > 80% |
-| Phase 0 schema validation | v1 entry 不報錯但不算 v2 complete；v2 entry 合法 |
-| Phase 0 migration report | 3-entry legacy fixture 產出 markdown，不污染主檔 |
-| Phase 0 atomic write | 模擬 crash 不破壞原檔 |
-| Phase 1 CJK gate | 中文 fixture Pass 1 top 10 score 有 gradient（非均值 ±0.05 內）|
-| Phase 1 real-HB test | 對 1 個真 whiteboard 跑 --dry-run 產出檔，人工讀得懂 |
-| Phase 1 no side effects | 不寫 registry、不建卡、不改 HB（grep log 驗證）|
+> **四件套規則**（per `feedback_new_module_deliverables_checklist.md`，2026-04-29 retrofit）：
+> 每個 phase 的 deliverable 都是 4 件，不能只看 module 本身：
+> 1. **Module** — pure function / class
+> 2. **Module unit tests** — 覆蓋每個分支
+> 3. **CLI integration tests**（若 module 透過 CLI flag 暴露）— 覆蓋 happy + 每個 error path
+> 4. **Skill markdown**（若 module 是 skill orchestration 一部分）— `.claude/commands/<skill>.md`
+>
+> 第 3/4 項若不適用，也要在表格列出 **N/A** 字樣，不能省略整列。
+
+### Per-deliverable acceptance
+
+| 項目 | 適用 | Pass 標準 |
+|------|------|----------|
+| Phase 0 module unit tests | 6 modules | pytest green，coverage > 80% |
+| Phase 0 schema validation | `registry/schema.py` | v1 entry 不報錯但不算 v2 complete；v2 entry 合法 |
+| Phase 0 migration report | `registry/migration.py` | 3-entry legacy fixture 產出 markdown，不污染主檔 |
+| Phase 0 atomic write | `registry/atomic_write.py` | 模擬 crash 不破壞原檔 |
+| Phase 0 CLI integration tests | **N/A** | Phase 0 純 internal helper，無 CLI surface |
+| Phase 0 skill markdown | **N/A** | Phase 0 純 backbone，無 skill orchestration |
+| Phase 1 module unit tests | 6 modules | pytest green |
+| Phase 1 CJK gate | `tfidf_prefilter.py` | 中文 fixture Pass 1 top 10 score 有 gradient（非均值 ±0.05 內）|
+| Phase 1 CLI integration tests | `cli.py` | 對 fixture 跑 happy path、ambiguous keyword、hard-stop、seed maturity、CJK gate fail 全綠 |
+| Phase 1 real-HB test | end-to-end | 對 1 個真 whiteboard 跑 --dry-run 產出檔，人工讀得懂 |
+| Phase 1 no side effects | end-to-end | 不寫 registry、不建卡、不改 HB（grep log 驗證）|
+| Phase 1 skill markdown | **N/A** | Phase 1 dry-run only，skill orchestration 推到 Phase 2C |
 
 ---
 
