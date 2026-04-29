@@ -224,13 +224,18 @@ def test_fragile_bridge_skips_well_connected_community_pair():
 
 def test_merge_candidate_high_overlap_with_high_confidence():
     """A and B both connected to {x, y, z} via existing — Jaccard 1.0,
-    high confidence → merge candidate."""
+    high confidence + shares_principle → merge candidate."""
     cards = [{"id": "A"}, {"id": "B"}, {"id": "x"}, {"id": "y"}, {"id": "z"}]
     existing = [
         {"from": "A", "to": "x"}, {"from": "A", "to": "y"}, {"from": "A", "to": "z"},
         {"from": "B", "to": "x"}, {"from": "B", "to": "y"}, {"from": "B", "to": "z"},
     ]
-    proposed = [{"from_id": "A", "to_id": "B", "confidence": "high"}]
+    proposed = [{
+        "from_id": "A", "to_id": "B",
+        "confidence": "high",
+        "relation_type": "shares_principle",
+        "needs_review": False,
+    }]
     report = compute_gap_signals(cards=cards, proposed_links=proposed,
                                  existing_connections=existing)
     assert len(report["merge_candidate"]) == 1
@@ -275,7 +280,12 @@ def test_merge_candidate_endpoints_excluded_from_neighbor_set():
         {"from": "A", "to": "x"},
         {"from": "B", "to": "x"},
     ]
-    proposed = [{"from_id": "A", "to_id": "B", "confidence": "high"}]
+    proposed = [{
+        "from_id": "A", "to_id": "B",
+        "confidence": "high",
+        "relation_type": "shares_principle",
+        "needs_review": False,
+    }]
     report = compute_gap_signals(cards=cards, proposed_links=proposed,
                                  existing_connections=existing)
     # A's existing neighbors (excluding B): {x}
@@ -305,7 +315,12 @@ def test_existing_connection_supports_beginid_endid_alias():
         {"beginId": "A", "endId": "x"},
         {"beginId": "B", "endId": "x"},
     ]
-    proposed = [{"from_id": "A", "to_id": "B", "confidence": "high"}]
+    proposed = [{
+        "from_id": "A", "to_id": "B",
+        "confidence": "high",
+        "relation_type": "shares_principle",
+        "needs_review": False,
+    }]
     report = compute_gap_signals(cards=cards, proposed_links=proposed,
                                  existing_connections=existing)
     # A's existing neighbors (excluding B): {x}
@@ -351,18 +366,140 @@ def test_proposed_link_self_loop_ignored():
     assert report["edge_count"] == 0
 
 
-def test_proposed_link_with_unknown_endpoint_still_added():
-    """If proposed pair references a card id not in cards list, networkx
-    accepts it; the orphan node appears in the graph but isn't in
-    weak_integration count for cards we know about."""
+def test_proposed_link_with_non_card_endpoint_is_filtered_out():
+    """Codex Phase 2B P1.2: gap signals are card-level, so edges where
+    either endpoint is not in the analyzable card set are dropped.
+    `B-not-in-cards` is not a card → edge omitted entirely."""
     cards = [{"id": "A"}]
-    proposed = [{"from_id": "A", "to_id": "B-not-in-cards", "confidence": "med"}]
+    proposed = [{"from_id": "A", "to_id": "B-not-in-cards",
+                 "confidence": "med"}]
     report = compute_gap_signals(cards=cards, proposed_links=proposed,
                                  existing_connections=[])
-    # Both A and B-not-in-cards end up in graph; both have degree 1 = weak
-    # We don't explicitly filter — gap_signals is downstream of inventory
-    # validation, so trusting endpoint hygiene to upstream is acceptable.
-    assert report["edge_count"] == 1
+    assert report["edge_count"] == 0
+    assert report["node_count"] == 1  # only A
+    # A is isolated → weak; B-not-in-cards must NOT appear anywhere
+    assert report["weak_integration"] == ["A"]
+
+
+def test_existing_connection_to_non_card_endpoint_filtered():
+    """Codex Phase 2B P1.2: existing HB connections may point at
+    sections / images / highlights — those IDs must not pollute card-
+    level signals."""
+    cards = [{"id": "A"}, {"id": "B"}]
+    existing = [
+        # A connects to a section (not in cards) → drop
+        {"from": "A", "to": "section-id-1"},
+        # A and B connect to each other → keep
+        {"from": "A", "to": "B"},
+        # B connects to an image (not in cards) → drop
+        {"beginId": "B", "endId": "image-2"},
+    ]
+    report = compute_gap_signals(cards=cards, proposed_links=[],
+                                 existing_connections=existing)
+    assert report["edge_count"] == 1  # only A↔B survives
+    assert report["node_count"] == 2  # only the two cards
+    # Neither section-id-1 nor image-2 anywhere in the report
+    weak_set = set(report["weak_integration"])
+    assert "section-id-1" not in weak_set
+    assert "image-2" not in weak_set
+
+
+# ---------- Codex Phase 2B P1.1: relation_type + needs_review filters ----------
+
+
+def test_merge_candidate_rejects_contradicts_relation():
+    """High confidence + same Jaccard topology, but relation_type is
+    'contradicts' → must NOT be flagged. Otherwise the user gets
+    catastrophic 'merge these opposing cards' advice."""
+    cards = [{"id": "A"}, {"id": "B"}, {"id": "x"}, {"id": "y"}, {"id": "z"}]
+    existing = [
+        {"from": "A", "to": "x"}, {"from": "A", "to": "y"}, {"from": "A", "to": "z"},
+        {"from": "B", "to": "x"}, {"from": "B", "to": "y"}, {"from": "B", "to": "z"},
+    ]
+    proposed = [{
+        "from_id": "A", "to_id": "B",
+        "confidence": "high",
+        "relation_type": "contradicts",  # opposite — never merge
+        "needs_review": False,
+    }]
+    report = compute_gap_signals(cards=cards, proposed_links=proposed,
+                                 existing_connections=existing)
+    assert report["merge_candidate"] == []
+
+
+def test_merge_candidate_rejects_needs_review_pairs():
+    """LLM declined to classify (fallback related_to + needs_review=True);
+    even with high confidence + 100% Jaccard, do NOT advise merge."""
+    cards = [{"id": "A"}, {"id": "B"}, {"id": "x"}, {"id": "y"}, {"id": "z"}]
+    existing = [
+        {"from": "A", "to": "x"}, {"from": "A", "to": "y"}, {"from": "A", "to": "z"},
+        {"from": "B", "to": "x"}, {"from": "B", "to": "y"}, {"from": "B", "to": "z"},
+    ]
+    proposed = [{
+        "from_id": "A", "to_id": "B",
+        "confidence": "high",
+        "relation_type": "related_to",  # fallback
+        "needs_review": True,
+    }]
+    report = compute_gap_signals(cards=cards, proposed_links=proposed,
+                                 existing_connections=existing)
+    assert report["merge_candidate"] == []
+
+
+@pytest.mark.parametrize(
+    "relation",
+    ["supports", "derives_from", "applies_to", "example_of",
+     "bridge_to", "tensions_with", "synergizes-with", "attracts",
+     "precedes"],
+)
+def test_merge_candidate_rejects_all_non_shares_principle_relations(relation):
+    """Forward-compat sweep: every relation other than shares_principle
+    must be excluded from merge_candidate, even with high conf + 100%
+    Jaccard. Spec §2.3 Step 7: only 'same concept different vocabulary'
+    qualifies; only shares_principle expresses that semantically."""
+    cards = [{"id": "A"}, {"id": "B"}, {"id": "x"}, {"id": "y"}, {"id": "z"}]
+    existing = [
+        {"from": "A", "to": "x"}, {"from": "A", "to": "y"}, {"from": "A", "to": "z"},
+        {"from": "B", "to": "x"}, {"from": "B", "to": "y"}, {"from": "B", "to": "z"},
+    ]
+    proposed = [{
+        "from_id": "A", "to_id": "B",
+        "confidence": "high",
+        "relation_type": relation,
+        "needs_review": False,
+    }]
+    report = compute_gap_signals(cards=cards, proposed_links=proposed,
+                                 existing_connections=existing)
+    assert report["merge_candidate"] == [], (
+        f"relation={relation!r} should not produce a merge_candidate"
+    )
+
+
+def test_merge_candidate_no_relation_type_when_pass2_absent():
+    """If --signals runs without --with-pass2, relation_type is None
+    on every pair → merge_candidate must be empty (None ∉ MERGE_ELIGIBLE).
+    This is the behavior the cli docstring promises."""
+    cards = [{"id": "A"}, {"id": "B"}, {"id": "x"}, {"id": "y"}, {"id": "z"}]
+    existing = [
+        {"from": "A", "to": "x"}, {"from": "A", "to": "y"}, {"from": "A", "to": "z"},
+        {"from": "B", "to": "x"}, {"from": "B", "to": "y"}, {"from": "B", "to": "z"},
+    ]
+    proposed = [{
+        "from_id": "A", "to_id": "B",
+        "confidence": "high",
+        "relation_type": None,  # Pass 2 didn't run
+        "needs_review": False,
+    }]
+    report = compute_gap_signals(cards=cards, proposed_links=proposed,
+                                 existing_connections=existing)
+    assert report["merge_candidate"] == []
+
+
+def test_merge_eligible_relations_is_just_shares_principle():
+    """Lock the design choice in a test so any future widening must
+    update both code and test (preventing accidental scope creep)."""
+    from scripts.propose_links.gap_signals import MERGE_ELIGIBLE_RELATIONS
+    assert MERGE_ELIGIBLE_RELATIONS == frozenset({"shares_principle"})
 
 
 def test_constants_match_spec():

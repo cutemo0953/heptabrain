@@ -4,17 +4,24 @@ Per DEV_SPEC_HEPTABRAIN_PROPOSE_LINKS.md §2.3 Step 7 (5-class signal
 taxonomy) and IMPLEMENTATION_PLAN_PHASE_2.md §3.
 
 Computes 5 gap signal types from the union graph of (existing
-connections ∪ proposed links):
+connections ∪ proposed links), restricted to analyzable card IDs:
 
   🔹 weak_integration  — degree < 2
   🔹 central_hub       — top-3 by betweenness centrality (positive only)
   🔹 fragile_bridge    — inter-community edge where the community-pair
                          has only 1-2 inter-community connections
-                         (Louvain on connected subgraph)
-  🔹 merge_candidate   — proposed-NEW pair with confidence='high' AND
-                         endpoints' existing-neighbor overlap > 70%
-                         (Jaccard, excluding the pair endpoints from
-                         each other's neighbor set)
+                         (Louvain on the non-isolated subgraph; this
+                         spans whatever connected components remain
+                         after isolates are stripped)
+  🔹 merge_candidate   — proposed-NEW pair with relation_type
+                         ='shares_principle' AND not needs_review AND
+                         confidence='high' AND endpoints' existing-
+                         neighbor Jaccard > 0.7 (excluding the pair
+                         endpoints from each other's neighbor set).
+                         The relation_type filter prevents 'contradicts'
+                         / 'tensions_with' / 'precedes' / fallback
+                         relations from being misadvised as merges.
+
   🔹 spaghetti         — degree > max(5, N / 3) — concept overload
 
 Edge cases per plan §3.1:
@@ -23,6 +30,10 @@ Edge cases per plan §3.1:
 - N < 5 → skip clustering; fragile_bridge always [] (whiteboard too
   small for community structure to be meaningful)
 - networkx ImportError → graceful empty report + warning
+- Edges referencing non-card object IDs (sections / images) are
+  filtered: gap signals are card-level, so the union graph contains
+  only edges where BOTH endpoints are in the analyzable card set
+  (Codex Phase 2B review P1.2).
 
 Pure function. No I/O. Caller is responsible for rendering the report
 into markdown (see ``output.render_dryrun_markdown``).
@@ -49,6 +60,18 @@ MERGE_OVERLAP_THRESHOLD: float = 0.7
 MIN_NODES_FOR_CLUSTERING: int = 5
 FRAGILE_BRIDGE_MAX: int = 2  # community pair with ≤ this many edges = fragile
 LOUVAIN_SEED: int = 42  # determinism for tests
+
+# Codex Phase 2B P1.1: only same-concept relations are eligible for
+# merge_candidate. Spec §2.3 Step 7 says "rationale 指向相同概念不同詞彙";
+# of the 11 frozen RELATION_TYPES (constants/relation_types.py), only
+# ``shares_principle`` clearly indicates "same concept, different
+# vocabulary". 'contradicts' / 'tensions_with' / 'precedes' / 'derives_from'
+# / 'supports' / 'bridge_to' / 'attracts' / 'synergizes-with' / 'applies_to'
+# / 'example_of' all describe RELATIONS between distinct concepts; a
+# user must not be told to merge those cards. Fallback 'related_to'
+# (needs_review=True) is also excluded — the LLM declined to classify,
+# so we don't trust the high-confidence label for merge advice either.
+MERGE_ELIGIBLE_RELATIONS: frozenset[str] = frozenset({"shares_principle"})
 
 
 def _spaghetti_threshold(n: int) -> int:
@@ -83,25 +106,36 @@ def _build_graph(
     existing_connections: list[dict[str, Any]],
 ):
     """Build the union graph (existing ∪ proposed) on which all metrics
-    are computed. Nodes = card ids. Edges carry ``source`` attribute
-    (``existing`` / ``proposed``) for diagnostic introspection.
+    are computed.
+
+    Nodes = analyzable card ids only. Edges where either endpoint is
+    not an analyzable card (e.g. a section / image / highlight ID
+    reachable via existing connections in HB) are dropped — gap signals
+    are card-level metrics and would be polluted by non-card endpoints
+    (Codex Phase 2B review P1.2).
+
+    Edges carry ``source`` attribute (``existing`` / ``proposed`` /
+    ``both``) for diagnostic introspection.
     """
     G = nx.Graph()
+    card_ids: set[str] = set()
     for c in cards:
         cid = c.get("id")
         if cid:
             G.add_node(cid)
+            card_ids.add(cid)
 
     for conn in existing_connections:
         from_id = conn.get("from") or conn.get("beginId")
         to_id = conn.get("to") or conn.get("endId")
-        if from_id and to_id and from_id != to_id:
+        if (from_id and to_id and from_id != to_id
+                and from_id in card_ids and to_id in card_ids):
             G.add_edge(from_id, to_id, source="existing")
 
     for p in proposed_links:
         a = p.get("from_id")
         b = p.get("to_id")
-        if a and b and a != b:
+        if a and b and a != b and a in card_ids and b in card_ids:
             # Don't downgrade an existing edge's 'source'; if the same
             # pair appears in both lists, mark it 'both' for diagnostics.
             if G.has_edge(a, b):
@@ -122,8 +156,10 @@ def _compute_central_hub(G) -> list[str]:
 
 def _compute_fragile_bridges(G) -> list[tuple[str, str]]:
     """Inter-community edges in community-pairs with ≤ FRAGILE_BRIDGE_MAX
-    inter-community connections. Computed on the largest connected piece;
-    isolated nodes are stripped so Louvain doesn't choke.
+    inter-community connections. Computed on the non-isolated subgraph
+    (degree > 0); this may span multiple connected components, and
+    Louvain partitions all of them in one pass. Isolated nodes are
+    stripped so Louvain doesn't choke (Codex P2 Phase 2B clarification).
     """
     if G.number_of_nodes() < MIN_NODES_FOR_CLUSTERING:
         return []
@@ -164,8 +200,12 @@ def _compute_merge_candidates(
     proposed_links: list[dict[str, Any]],
     existing_index: dict[str, set[str]],
 ) -> list[dict[str, Any]]:
-    """Pair where confidence='high' AND endpoints' existing-neighbor
-    Jaccard overlap > MERGE_OVERLAP_THRESHOLD.
+    """Pair where:
+      - confidence == 'high'
+      - relation_type ∈ MERGE_ELIGIBLE_RELATIONS (currently only
+        'shares_principle')
+      - needs_review is falsey (LLM was confident in the classification)
+      - endpoints' existing-neighbor Jaccard overlap > MERGE_OVERLAP_THRESHOLD
 
     Excludes the other endpoint from each side's neighbor set so we
     don't count the proposed pair itself as overlap.
@@ -173,10 +213,20 @@ def _compute_merge_candidates(
     If neither endpoint has any existing neighbor (other than each
     other), the union is empty and we cannot compute a meaningful
     Jaccard — skip.
+
+    The relation_type / needs_review filters (Codex Phase 2B P1.1) are
+    safety gates: we don't want to advise merging cards whose LLM-
+    inferred relation is 'contradicts' or that the LLM declined to
+    classify (fallback 'related_to' + needs_review=True). High Jaccard
+    + high confidence alone is not sufficient — see module docstring.
     """
     out: list[dict[str, Any]] = []
     for p in proposed_links:
         if p.get("confidence") != "high":
+            continue
+        if p.get("relation_type") not in MERGE_ELIGIBLE_RELATIONS:
+            continue
+        if p.get("needs_review"):
             continue
         a = p.get("from_id")
         b = p.get("to_id")

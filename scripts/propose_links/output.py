@@ -350,7 +350,11 @@ def render_dryrun_markdown(
             done = "LLM Pass 2 has been merged into the candidate table above."
         else:
             label = "Phase 2B"
-            done = "Gap signals computed via NetworkX from existing connections."
+            done = (
+                "Gap signals computed via NetworkX over the union graph "
+                "(existing ∪ proposed connections), restricted to "
+                "analyzable cards."
+            )
         lines.append(f"## {label} boundary (registry unchanged)")
         lines.append("")
         lines.append(done + " The following layers intentionally did NOT happen:")

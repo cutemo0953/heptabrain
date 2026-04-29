@@ -50,11 +50,16 @@ def _build_proposed_links(
     cards: list[dict[str, Any]],
     enriched: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """Resolve NEW classified pairs → list of {from_id, to_id, confidence}.
+    """Resolve NEW classified pairs → list of dicts with endpoints +
+    Pass 2 metadata.
 
-    `gap_signals.compute_gap_signals` only needs endpoints + confidence;
-    if Pass 2 hasn't run, every NEW pair gets confidence=None (so
-    merge_candidate is naturally empty).
+    Passes through ``relation_type`` and ``needs_review`` (Codex Phase 2B
+    review P1.1) so gap_signals.merge_candidate can filter on
+    same-concept relations rather than blindly trusting confidence + Jaccard.
+
+    If Pass 2 hasn't run, ``confidence`` / ``relation_type`` are None
+    and ``needs_review`` is False — merge_candidate is then naturally
+    empty (the relation_type filter rejects None).
     """
     enriched_by_pid = {
         e["pair_id"]: e for e in (enriched or []) if "pair_id" in e
@@ -77,6 +82,8 @@ def _build_proposed_links(
             "from_id": a,
             "to_id": b,
             "confidence": e.get("confidence"),
+            "relation_type": e.get("relation_type"),
+            "needs_review": bool(e.get("needs_review")),
         })
     return out
 
