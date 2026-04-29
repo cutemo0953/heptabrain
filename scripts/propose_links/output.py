@@ -162,6 +162,8 @@ def render_dryrun_markdown(
     status_summary: dict[str, int] | None = None,
     enriched_pairs: list[dict[str, Any]] | None = None,
     gap_signals_report: dict[str, Any] | None = None,
+    registry_written: bool = False,
+    suggestion_card_written: bool = False,
 ) -> str:
     lines: list[str] = []
     name = inventory.get("whiteboard_name", "(unnamed)")
@@ -338,33 +340,57 @@ def render_dryrun_markdown(
             lines.append(f"- `{k}`: `{diagnostics[k]}`")
     lines.append("")
 
-    # Boundary footer (Codex P1.3): swap wording when Pass 2 / signals
-    # have run so an enriched output doesn't claim those layers skipped.
+    # Boundary footer (Codex P1.3 + Phase 2D real-validation fix):
+    # accurately reflects what THIS run did. Each phase that ran appears
+    # in the label; each phase that didn't run appears in the deferred
+    # list. Registry/card paths are passed through from CLI so the
+    # footer can't lie about durable side effects.
     has_signals = bool(gap_signals_report)
-    if has_pass2 or has_signals:
-        if has_pass2 and has_signals:
-            label = "Phase 2A + 2B"
-            done = "LLM Pass 2 merged into the candidate table; gap signals computed via NetworkX."
-        elif has_pass2:
-            label = "Phase 2A"
-            done = "LLM Pass 2 has been merged into the candidate table above."
-        else:
-            label = "Phase 2B"
-            done = (
-                "Gap signals computed via NetworkX over the union graph "
-                "(existing ∪ proposed connections), restricted to "
-                "analyzable cards."
-            )
-        lines.append(f"## {label} boundary (registry unchanged)")
+    ran_layers: list[str] = []
+    deferred: list[str] = []
+    if has_pass2:
+        ran_layers.append("2A")
+    else:
+        deferred.append("- ❌ No LLM Pass 2 analysis (Phase 2A)")
+    if has_signals:
+        ran_layers.append("2B")
+    else:
+        deferred.append("- ❌ No gap-signal detection (Phase 2B)")
+    if registry_written:
+        ran_layers.append("2C-registry")
+    else:
+        deferred.append(
+            "- ❌ No write to `_discovered_links.json` registry (Phase 2C)"
+        )
+    if suggestion_card_written:
+        ran_layers.append("2C-card")
+    else:
+        deferred.append(
+            "- ❌ No suggestion card body rendered (Phase 2C)"
+        )
+
+    if ran_layers:
+        label = "Phase " + " + ".join(ran_layers)
+        scope = (
+            "registry written" if registry_written else "registry unchanged"
+        )
+        lines.append(f"## {label} boundary ({scope})")
         lines.append("")
-        lines.append(done + " The following layers intentionally did NOT happen:")
-        lines.append("")
-        if not has_pass2:
-            lines.append("- ❌ No LLM Pass 2 analysis (Phase 2A)")
-        if not has_signals:
-            lines.append("- ❌ No gap-signal detection (Phase 2B)")
-        lines.append("- ❌ No write to `_discovered_links.json` registry (Phase 2C)")
-        lines.append("- ❌ No suggestion card created in the Heptabase whiteboard (Phase 2C)")
+        ran_summary_parts = []
+        if has_pass2:
+            ran_summary_parts.append("LLM Pass 2 merged into the candidate table")
+        if has_signals:
+            ran_summary_parts.append("gap signals computed via NetworkX")
+        if registry_written:
+            ran_summary_parts.append("eligible entries appended to `_discovered_links.json`")
+        if suggestion_card_written:
+            ran_summary_parts.append("🗂️ suggestion card body rendered")
+        lines.append("This run: " + "; ".join(ran_summary_parts) + ".")
+        if deferred:
+            lines.append("")
+            lines.append("The following layers intentionally did NOT happen:")
+            lines.append("")
+            lines.extend(deferred)
         lines.append("")
         lines.append(
             "See `docs/IMPLEMENTATION_PLAN_PHASE_2.md` §3 / §4 for the "

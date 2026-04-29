@@ -1132,9 +1132,12 @@ def test_full_phase2_pipeline_e2e(tmp_path: Path):
     assert reg.exists()
     assert card_path.exists()
     assert list(tmp_path.glob("*_dryrun.md"))
-    # Combined boundary footer in dry-run markdown
+    # Boundary footer reflects ALL four layers that ran (Phase 2D fix)
     md_text = next(tmp_path.glob("*_dryrun.md")).read_text(encoding="utf-8")
-    assert "Phase 2A + 2B boundary" in md_text
+    assert "Phase 2A + 2B + 2C-registry + 2C-card boundary" in md_text
+    assert "registry written" in md_text
+    # Deferred list is empty (everything ran) — no NOT happen line
+    assert "intentionally did NOT happen" not in md_text
 
 
 def test_with_pass2_missing_file_returns_user_error(tmp_path: Path):

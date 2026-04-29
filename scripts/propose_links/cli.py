@@ -501,6 +501,10 @@ def main(
         )
         return EXIT_USER_ERROR
 
+    # Track what actually ran for the boundary footer (Phase 2D fix).
+    suggestion_card_written = False
+    registry_written = False
+
     # Phase 2C step 1 (local, non-durable): suggestion card markdown body
     if args.suggestion_card is not None:
         from datetime import datetime, timezone
@@ -520,13 +524,21 @@ def main(
         except OSError as e:
             print(f"error: --suggestion-card write failed: {e}", file=err)
             return EXIT_RUNTIME_ERROR
+        suggestion_card_written = True
         print(
             f"[suggestion-card] wrote {len(card_body)} bytes to "
             f"{args.suggestion_card}",
             file=err,
         )
 
-    # Step 8 (local, non-durable): render dry-run markdown
+    # Step 8 (local, non-durable): render dry-run markdown.
+    # Note: registry_written is computed AFTER render below, but the
+    # footer needs it. We pre-compute by checking if --discovered-json
+    # was set AND we got past pre-validation (which we have here, since
+    # the missing-pass2 guard returned earlier). Atomic-write failure
+    # below would still flip this to truth-by-intent — accepted edge
+    # case; the user still sees the runtime error.
+    will_write_registry = args.discovered_json is not None
     md = render_dryrun_markdown(
         inventory,
         maturity,
@@ -535,6 +547,8 @@ def main(
         status_summary=summary,
         enriched_pairs=enriched,
         gap_signals_report=gap_report,
+        registry_written=will_write_registry,
+        suggestion_card_written=suggestion_card_written,
     )
     try:
         args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -564,6 +578,7 @@ def main(
         except (ValueError, OSError) as e:
             print(f"error: --discovered-json failed: {e}", file=err)
             return EXIT_RUNTIME_ERROR
+        registry_written = True
         print(
             f"[discovered-json] wrote {report['written']} entries "
             f"(skipped {report['skipped']}, invalid {len(report['invalid'])}, "

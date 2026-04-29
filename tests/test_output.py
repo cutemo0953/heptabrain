@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from scripts.propose_links.output import (
     _slugify,
     dryrun_filename,
@@ -682,3 +684,138 @@ def test_render_combined_phase_2a_2b_boundary_when_both():
     # But registry / suggestion card still listed as deferred
     assert "_discovered_links.json" in deferred_block
     assert "suggestion card" in deferred_block
+
+
+# ---------- Phase 2D: boundary footer reflects 2C side effects ----------
+
+
+def test_render_registry_written_label_and_scope():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        enriched_pairs=[
+            _enriched("p-0-1", relation_type="supports", rationale="x",
+                      confidence="high"),
+        ],
+        registry_written=True,
+    )
+    assert "Phase 2A + 2C-registry boundary" in md
+    assert "registry written" in md
+    # Deferred list excludes registry but includes signals + card
+    deferred_block = md.split("intentionally did NOT happen")[1]
+    assert "_discovered_links.json" not in deferred_block
+    assert "suggestion card body" in deferred_block
+    assert "No gap-signal" in deferred_block
+
+
+def test_render_card_written_label_when_only_card():
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        enriched_pairs=[
+            _enriched("p-0-1", relation_type="supports", rationale="x",
+                      confidence="high"),
+        ],
+        suggestion_card_written=True,
+    )
+    assert "Phase 2A + 2C-card boundary" in md
+    # Header says "registry unchanged" since registry_written=False
+    assert "registry unchanged" in md
+    # Card line must NOT appear in deferred
+    deferred_block = md.split("intentionally did NOT happen")[1]
+    assert "suggestion card body" not in deferred_block
+    assert "_discovered_links.json" in deferred_block
+
+
+def test_render_full_pipeline_no_deferred_section():
+    """When 2A + 2B + 2C-registry + 2C-card all ran, deferred list
+    is empty so the 'intentionally did NOT happen' header is omitted."""
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        enriched_pairs=[
+            _enriched("p-0-1", relation_type="supports", rationale="x",
+                      confidence="high"),
+        ],
+        gap_signals_report=_gap_report(),
+        registry_written=True,
+        suggestion_card_written=True,
+    )
+    assert "Phase 2A + 2B + 2C-registry + 2C-card boundary" in md
+    assert "registry written" in md
+    assert "intentionally did NOT happen" not in md
+    # "This run:" summary lists every layer
+    summary_line = [l for l in md.splitlines() if l.startswith("This run:")][0]
+    assert "LLM Pass 2 merged" in summary_line
+    assert "gap signals computed" in summary_line
+    assert "appended to" in summary_line
+    assert "suggestion card body rendered" in summary_line
+
+
+def test_render_registry_written_alone_uses_2c_registry_label():
+    """Just --discovered-json without --signals: --discovered-json
+    requires --with-pass2 (CLI gate), so 2A is implied. Render-level
+    test: enriched present + registry_written but no signals."""
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        enriched_pairs=[
+            _enriched("p-0-1", relation_type="supports", rationale="x",
+                      confidence="high"),
+        ],
+        registry_written=True,
+        # signals = None; suggestion_card_written = False
+    )
+    assert "Phase 2A + 2C-registry boundary" in md
+    deferred_block = md.split("intentionally did NOT happen")[1]
+    assert "No gap-signal" in deferred_block
+
+
+@pytest.mark.parametrize("pass2,signals,reg,card,expected_label", [
+    # All 16 combos of the four boolean knobs.
+    (False, False, False, False, None),  # Phase 1 (no boundary suffix)
+    (True,  False, False, False, "Phase 2A boundary"),
+    (False, True,  False, False, "Phase 2B boundary"),
+    (True,  True,  False, False, "Phase 2A + 2B boundary"),
+    (True,  False, True,  False, "Phase 2A + 2C-registry boundary"),
+    (True,  False, False, True,  "Phase 2A + 2C-card boundary"),
+    (True,  False, True,  True,  "Phase 2A + 2C-registry + 2C-card boundary"),
+    (True,  True,  True,  False, "Phase 2A + 2B + 2C-registry boundary"),
+    (True,  True,  False, True,  "Phase 2A + 2B + 2C-card boundary"),
+    (True,  True,  True,  True,  "Phase 2A + 2B + 2C-registry + 2C-card boundary"),
+    # Pure-2C combos without 2A: physically reachable at the render
+    # level (caller bypasses CLI gates) — we still emit a sane label.
+    (False, False, True,  False, "Phase 2C-registry boundary"),
+    (False, False, False, True,  "Phase 2C-card boundary"),
+    (False, True,  True,  False, "Phase 2B + 2C-registry boundary"),
+    (False, True,  False, True,  "Phase 2B + 2C-card boundary"),
+    (False, False, True,  True,  "Phase 2C-registry + 2C-card boundary"),
+    (False, True,  True,  True,  "Phase 2B + 2C-registry + 2C-card boundary"),
+])
+def test_render_boundary_label_composability(pass2, signals, reg, card,
+                                             expected_label):
+    """All 16 boolean combos produce a deterministic label."""
+    enriched = (
+        [_enriched("p-0-1", relation_type="supports", rationale="x",
+                   confidence="high")]
+        if pass2 else None
+    )
+    md = render_dryrun_markdown(
+        _sample_inventory(), ("forming", "heuristic"),
+        [(0, 1, 0.5, "NEW")], _sample_diag(),
+        enriched_pairs=enriched,
+        gap_signals_report=_gap_report() if signals else None,
+        registry_written=reg,
+        suggestion_card_written=card,
+    )
+    if expected_label is None:
+        assert "Phase 1 boundary" in md
+        for tok in ("Phase 2A", "Phase 2B", "Phase 2C"):
+            assert f"{tok} boundary" not in md
+    else:
+        assert expected_label in md
+    # Scope text ("registry written" vs "registry unchanged") tracks reg.
+    if expected_label is not None:
+        assert (
+            "registry written" if reg else "registry unchanged"
+        ) in md
