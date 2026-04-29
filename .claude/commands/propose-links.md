@@ -36,8 +36,12 @@ Both CLI calls MUST receive the same `--fixture {run_dir}/snapshot.json`. Pass 2
 
 ## Pipeline
 
-### Step 1 — Discover whiteboard
+### Step 1 — Discover whiteboard (or use direct ID)
 
+If `$ARGUMENTS` matches the Heptabase ID shape (UUID-style, e.g.
+`wb-7b3a-...`), **skip search** and go straight to Step 2 with that id.
+
+Otherwise, treat `$ARGUMENTS` as a name keyword:
 ```
 mcp__heptabase-mcp__search_whiteboards(keyword=$ARGUMENTS)
 ```
@@ -50,7 +54,7 @@ If 0 matches → ask user to refine. If 1 match → confirm with user. If ≥ 2 
 mcp__heptabase-mcp__get_whiteboard_with_objects(whiteboard_id={id})
 ```
 
-Wrap the response into `{whiteboards: [{id, name, objects, connections}]}` and write to `{run_dir}/snapshot.json`. This is now a fixture compatible with `FakeHeptabaseMCPClient`.
+Wrap the response into `{whiteboards: [{id, name, objects, connections}]}` and write to `{run_dir}/snapshot.json`. This is now a fixture compatible with `FakeHeptabaseMCPClient`. The id-direct path (Step 1's first branch) reaches this same call without a prior search.
 
 ### Step 3 — Phase 1 + 2.1 dry-run + emit pairs
 

@@ -259,6 +259,36 @@ def main(
     _intercept_phase2_value_form(parser, list(argv) if argv is not None else sys.argv[1:])
     args = parser.parse_args(argv)
 
+    # Codex Phase 2C P1.1 — path collision preflight. Each output path
+    # must be distinct (resolved/canonical) from every other Phase 2
+    # path. Catches `--discovered-json X --suggestion-card X` (which
+    # would silently corrupt as the card overwrites the registry) plus
+    # collisions with --emit-pairs / --with-pass2 / --fixture.
+    path_args: list[tuple[str, Path]] = []
+    for flag_name, value in (
+        ("--fixture", getattr(args, "fixture", None)),
+        ("--emit-pairs", getattr(args, "emit_pairs", None)),
+        ("--with-pass2", getattr(args, "with_pass2", None)),
+        ("--discovered-json", getattr(args, "discovered_json", None)),
+        ("--suggestion-card", getattr(args, "suggestion_card", None)),
+    ):
+        if value is not None:
+            try:
+                resolved = Path(value).resolve()
+            except (OSError, RuntimeError):
+                resolved = Path(value).absolute()
+            path_args.append((flag_name, resolved))
+    seen: dict[Path, str] = {}
+    for flag_name, resolved in path_args:
+        if resolved in seen:
+            print(
+                f"error: path collision — {flag_name} and {seen[resolved]} "
+                f"both resolve to {resolved!s}; refusing to overwrite",
+                file=err,
+            )
+            return EXIT_USER_ERROR
+        seen[resolved] = flag_name
+
     if client is not None:
         mcp = client
     else:
@@ -447,46 +477,32 @@ def main(
         for w in gap_report.get("warnings") or []:
             print(f"[signals warn] {w}", file=err)
 
-    # Phase 2C: registry write (requires Pass 2 — eligible filter
-    # excludes pairs without analysis)
-    if args.discovered_json is not None:
-        if enriched is None:
-            print(
-                "error: --discovered-json requires --with-pass2 "
-                "(writer needs Pass 2 results to determine eligibility)",
-                file=err,
-            )
-            return EXIT_USER_ERROR
-        try:
-            report = append_discovered_links(
-                args.discovered_json,
-                enriched,
-                cards=inventory["cards"],
-                whiteboard_id=inventory["whiteboard_id"],
-            )
-        except (ValueError, OSError) as e:
-            print(f"error: --discovered-json failed: {e}", file=err)
-            return EXIT_RUNTIME_ERROR
+    # Codex Phase 2C P1.2 — write order matters under retry.
+    # All NON-DURABLE local artifacts (suggestion card, dry-run markdown)
+    # must be written BEFORE the durable registry append. If any local
+    # write fails, the registry stays untouched and the skill can retry
+    # safely without producing duplicate entries.
+    #
+    # Pre-validate Pass 2 prerequisites for both --discovered-json and
+    # --suggestion-card here so we exit early without writing anything
+    # if --with-pass2 is missing.
+    if args.discovered_json is not None and enriched is None:
         print(
-            f"[discovered-json] wrote {report['written']} entries "
-            f"(skipped {report['skipped']}, invalid {len(report['invalid'])}, "
-            f"registry now {report['registry_size']} entries)",
+            "error: --discovered-json requires --with-pass2 "
+            "(writer needs Pass 2 results to determine eligibility)",
             file=err,
         )
-        for pair_id_, errors in report["invalid"]:
-            for e_msg in errors:
-                print(f"[discovered-json invalid] {pair_id_}: {e_msg}",
-                      file=err)
+        return EXIT_USER_ERROR
+    if args.suggestion_card is not None and enriched is None:
+        print(
+            "error: --suggestion-card requires --with-pass2 "
+            "(card body lists Pass 2 enriched links)",
+            file=err,
+        )
+        return EXIT_USER_ERROR
 
-    # Phase 2C: suggestion card markdown body (skill creates the HB card)
+    # Phase 2C step 1 (local, non-durable): suggestion card markdown body
     if args.suggestion_card is not None:
-        if enriched is None:
-            print(
-                "error: --suggestion-card requires --with-pass2 "
-                "(card body lists Pass 2 enriched links)",
-                file=err,
-            )
-            return EXIT_USER_ERROR
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc)
         card_body = render_suggestion_card(
@@ -510,7 +526,7 @@ def main(
             file=err,
         )
 
-    # Step 8: render markdown
+    # Step 8 (local, non-durable): render dry-run markdown
     md = render_dryrun_markdown(
         inventory,
         maturity,
@@ -533,6 +549,31 @@ def main(
             file=err,
         )
         return EXIT_RUNTIME_ERROR
+
+    # Phase 2C step 2 (DURABLE): registry append must be last so any
+    # local write failure above aborts the run before mutating the
+    # registry — keeps skill retries idempotent.
+    if args.discovered_json is not None:
+        try:
+            report = append_discovered_links(
+                args.discovered_json,
+                enriched,
+                cards=inventory["cards"],
+                whiteboard_id=inventory["whiteboard_id"],
+            )
+        except (ValueError, OSError) as e:
+            print(f"error: --discovered-json failed: {e}", file=err)
+            return EXIT_RUNTIME_ERROR
+        print(
+            f"[discovered-json] wrote {report['written']} entries "
+            f"(skipped {report['skipped']}, invalid {len(report['invalid'])}, "
+            f"registry now {report['registry_size']} entries)",
+            file=err,
+        )
+        for pair_id_, errors in report["invalid"]:
+            for e_msg in errors:
+                print(f"[discovered-json invalid] {pair_id_}: {e_msg}",
+                      file=err)
 
     # Step 9: human-readable echo
     print(md, file=out)

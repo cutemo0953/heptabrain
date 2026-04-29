@@ -42,6 +42,13 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _default_run_timestamp() -> str:
+    """Microsecond-precision timestamp for link_id de-collision (Codex
+    Phase 2C P2.1 fix). Two append_discovered_links calls within the
+    same second now produce distinct link_id prefixes."""
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+
 def _eligible(pair: dict[str, Any]) -> bool:
     if pair.get("status") != "NEW":
         return False
@@ -99,7 +106,16 @@ def build_v2_entry(
         "scope_type": "whiteboard",
         "scope_whiteboard_id": whiteboard_id,
         "source_mode": "propose-links",
-        "evidence_kind": list(pair.get("evidence_kind") or []),
+        # Codex Phase 2C P2.2 fix: reject non-list evidence_kind so a
+        # malformed pair (string instead of list) doesn't get expanded
+        # to character-list. CLI path is protected by merge_pass2 but
+        # the writer can be called directly.
+        "evidence_kind": (
+            [str(x) for x in pair["evidence_kind"]
+             if isinstance(x, str)]
+            if isinstance(pair.get("evidence_kind"), list)
+            else []
+        ),
         "last_verified_at": _now_iso(),
         "verified_by": "ai",
 
@@ -143,7 +159,7 @@ def append_discovered_links(
     audit trails).
     """
     if run_timestamp is None:
-        run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_timestamp = _default_run_timestamp()
 
     existing: list[dict[str, Any]] = []
     if registry_path.exists():

@@ -349,3 +349,60 @@ def test_append_entry_validates_against_schema(tmp_path: Path):
     )
     data = json.loads(reg.read_text(encoding="utf-8"))
     assert validate_entry(data[0]) == []
+
+
+# ---------- Codex Phase 2C P2.1: run_timestamp microsecond precision ----------
+
+
+def test_default_run_timestamp_includes_microseconds(tmp_path: Path):
+    """Two calls in fast succession must produce distinct link_id
+    prefixes (Codex P2.1: second-precision collides under fast retry)."""
+    reg = tmp_path / "links.json"
+    rep1 = append_discovered_links(
+        reg, [_enriched(pair_id="p-0-1", i=0, j=1)],
+        cards=_cards(), whiteboard_id="wb-1",
+    )
+    rep2 = append_discovered_links(
+        reg, [_enriched(pair_id="p-0-2", i=0, j=2)],
+        cards=_cards(), whiteboard_id="wb-1",
+    )
+    # Different runs, distinct timestamps
+    assert rep1["run_timestamp"] != rep2["run_timestamp"]
+    # Both timestamps include microsecond suffix (no '.' in compact form,
+    # but length > 16 indicates microseconds present)
+    assert len(rep1["run_timestamp"]) > 16
+    assert len(rep2["run_timestamp"]) > 16
+
+
+# ---------- Codex Phase 2C P2.2: evidence_kind list-type guard ----------
+
+
+def test_build_v2_entry_rejects_string_evidence_kind():
+    """If a malformed pair carries evidence_kind='text_overlap'
+    (string instead of list), do NOT expand it character-wise. Empty
+    list is the safe default."""
+    pair = _enriched(evidence_kind="text_overlap")  # type: ignore[arg-type]
+    entry = build_v2_entry(
+        pair, cards=_cards(), whiteboard_id="wb-1",
+        run_timestamp="X", seq=0,
+    )
+    assert entry["evidence_kind"] == []  # not ['t', 'e', 'x', 't', ...]
+
+
+def test_build_v2_entry_filters_non_string_items_in_evidence_kind():
+    pair = _enriched(evidence_kind=["text_overlap", 42, None,
+                                     "shared_actor"])  # type: ignore[list-item]
+    entry = build_v2_entry(
+        pair, cards=_cards(), whiteboard_id="wb-1",
+        run_timestamp="X", seq=0,
+    )
+    assert entry["evidence_kind"] == ["text_overlap", "shared_actor"]
+
+
+def test_build_v2_entry_handles_none_evidence_kind():
+    pair = _enriched(evidence_kind=None)  # type: ignore[arg-type]
+    entry = build_v2_entry(
+        pair, cards=_cards(), whiteboard_id="wb-1",
+        run_timestamp="X", seq=0,
+    )
+    assert entry["evidence_kind"] == []

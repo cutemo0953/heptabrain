@@ -1001,6 +1001,114 @@ def test_suggestion_card_combined_with_signals_includes_gap_section(tmp_path: Pa
     assert "## Gap Signals" in body or "建議 New Links" in body
 
 
+def test_discovered_json_and_suggestion_card_collision_returns_user_error(
+    tmp_path: Path,
+):
+    """Codex Phase 2C P1.1: same path for both → silent corruption.
+    Preflight must reject."""
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    same = tmp_path / "shared.out"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--discovered-json", str(same),
+            "--suggestion-card", str(same),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_USER_ERROR
+    assert "path collision" in err.getvalue()
+    assert not same.exists()
+
+
+def test_discovered_json_collides_with_pass2_input(tmp_path: Path):
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--discovered-json", str(pass2_path),  # same as input!
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_USER_ERROR
+    assert "path collision" in err.getvalue()
+    # pass2.json untouched
+    import json as _json
+    assert "analyses" in _json.loads(pass2_path.read_text(encoding="utf-8"))
+
+
+def test_emit_pairs_and_with_pass2_path_collision(tmp_path: Path):
+    """Even though they're never used together logically, the preflight
+    is value-shape — same path for both flags must surface as user error
+    rather than silent overwrite."""
+    p = tmp_path / "shared.json"
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--emit-pairs", str(p),
+            "--with-pass2", str(p),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_USER_ERROR
+    assert "path collision" in err.getvalue()
+
+
+def test_suggestion_card_failure_leaves_registry_untouched(tmp_path: Path):
+    """Codex Phase 2C P1.2: write order = local-first, durable-last.
+    If suggestion-card write fails, the registry must not have been
+    appended to (so retry is safe)."""
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    reg = tmp_path / "links.json"
+    # Create a path the card can never be written to (parent is a file)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir")
+    bad_card = blocker / "sub" / "card.md"
+
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(tmp_path),
+            "--with-pass2", str(pass2_path),
+            "--discovered-json", str(reg),
+            "--suggestion-card", str(bad_card),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_RUNTIME_ERROR
+    # Registry must NOT exist (card write failed before registry append)
+    assert not reg.exists(), (
+        "registry was written despite card-write failure — retry would duplicate"
+    )
+
+
+def test_dryrun_failure_leaves_registry_untouched(tmp_path: Path):
+    """Same invariant as above but for the dry-run markdown write step."""
+    _payload, pass2_path = _emit_pass2_for_first_pair(tmp_path)
+    reg = tmp_path / "links.json"
+    # Block the dry-run output dir
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a dir")
+    bad_outdir = blocker / "sub"
+
+    out, err = _streams()
+    rc = main(
+        [
+            "wb-mock-en-zh-001", "--output-dir", str(bad_outdir),
+            "--with-pass2", str(pass2_path),
+            "--discovered-json", str(reg),
+        ],
+        client=_client(), stdout=out, stderr=err,
+    )
+    assert rc == EXIT_RUNTIME_ERROR
+    assert not reg.exists()
+
+
 def test_full_phase2_pipeline_e2e(tmp_path: Path):
     """End-to-end: --with-pass2 + --signals + --discovered-json +
     --suggestion-card all together → registry written, card body
